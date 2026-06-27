@@ -1,0 +1,12 @@
+.DS_Store
+
+# Local agent/runtime configuration
+.claude/
+
+# Xcode local state
+**/xcuserdata/
+**/*.xcuserstate
+
+# Build artifacts
+DerivedData/
+build/
