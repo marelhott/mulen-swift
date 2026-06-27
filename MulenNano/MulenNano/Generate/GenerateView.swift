@@ -34,7 +34,7 @@ struct GenerateView: View {
     private enum GenMode { case normal, variace, interpretace }
 
     var body: some View {
-        HSplitView {
+        HStack(spacing: 0) {
             GenerateLeftPanel(
                 model: model,
                 promptText: promptBinding,
@@ -51,8 +51,16 @@ struct GenerateView: View {
                 onUndoPrompt: undoPrompt,
                 onRedoPrompt: redoPrompt
             )
+            Rectangle()
+                .fill(.primary.opacity(0.06))
+                .frame(width: 1)
+                .ignoresSafeArea()
             results
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Rectangle()
+                .fill(.primary.opacity(0.06))
+                .frame(width: 1)
+                .ignoresSafeArea()
             GenerateRightPanel(
                 model: model,
                 enhancing: isEnhancing,

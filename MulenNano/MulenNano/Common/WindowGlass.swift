@@ -2,19 +2,43 @@
 //  WindowGlass.swift
 //  MulenNano
 //
-//  Zpřístupní NSWindow a nastaví průhledné pozadí — desktop probíjí skrz glass materiály.
+//  Správná implementace průhledného okna s vibrancy:
+//  NSVisualEffectView.blendingMode = .behindWindow sampuluje pixely za oknem (desktop/wallpaper).
+//  NSWindow.isOpaque = false + backgroundColor = .clear dovolí SwiftUI vrstvám být průhledné.
 //
 
 import SwiftUI
 import AppKit
 
-/// Vloží se do view hierarchy; jakmile se view připojí k oknu, nastaví ho průhledným.
-struct WindowGlassBackground: NSViewRepresentable {
-    func makeNSView(context: Context) -> _WindowGlassHelper { _WindowGlassHelper() }
-    func updateNSView(_ nsView: _WindowGlassHelper, context: Context) {}
+// MARK: - Desktop vibrancy background
+
+/// NSVisualEffectView s blendingMode .behindWindow — sampluje wallpaper za oknem.
+/// Použij jako .background{} na root view.
+struct DesktopVibrancyBackground: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .underWindowBackground
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let v = NSVisualEffectView()
+        v.material = material
+        v.blendingMode = .behindWindow
+        v.state = .active
+        return v
+    }
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
+    }
 }
 
-final class _WindowGlassHelper: NSView {
+// MARK: - Window transparency configurator
+
+/// Nastaví NSWindow průhledným — nutné pro .behindWindow vibrancy.
+/// Vloží se jako .background(WindowTransparency()) na root view.
+struct WindowTransparency: NSViewRepresentable {
+    func makeNSView(context: Context) -> _WTHelper { _WTHelper() }
+    func updateNSView(_ nsView: _WTHelper, context: Context) {}
+}
+
+final class _WTHelper: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard let w = window else { return }

@@ -77,9 +77,9 @@ struct GenerateLeftPanel: View {
     // MARK: Prompt
     private var promptSection: some View {
         VStack(alignment: .leading, spacing: DS.Space.s) {
-            HStack {
+            HStack(spacing: DS.Space.xs) {
                 SectionLabel("Prompt")
-                Spacer()
+                Spacer(minLength: 0)
                 savedMenu
                 Button(action: onUndoPrompt) {
                     Image(systemName: "arrow.uturn.backward")
@@ -88,7 +88,6 @@ struct GenerateLeftPanel: View {
                 .foregroundStyle(canUndoPrompt ? .secondary : .tertiary)
                 .disabled(!canUndoPrompt)
                 .help("Zpět")
-
                 Button(action: onRedoPrompt) {
                     Image(systemName: "arrow.uturn.forward")
                 }
@@ -96,15 +95,14 @@ struct GenerateLeftPanel: View {
                 .foregroundStyle(canRedoPrompt ? .secondary : .tertiary)
                 .disabled(!canRedoPrompt)
                 .help("Znovu")
-
-                Picker("", selection: $model.mode) {
-                    ForEach(PromptMode.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .controlSize(.small)
-                .fixedSize()
             }
+
+            Picker("", selection: $model.mode) {
+                ForEach(PromptMode.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .controlSize(.small)
 
             ZStack(alignment: .topLeading) {
                 TextEditor(text: promptBinding)

@@ -27,7 +27,7 @@ struct CollectionsView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(.clear)
         .onAppear { if selected == nil { selected = env.library.collections.first?.id } }
     }
 

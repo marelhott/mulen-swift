@@ -180,7 +180,7 @@ struct GeneratedImageDetailSheet: View {
             }
             .padding(DS.Space.l)
         }
-        .background(.background)
+        .background(.clear)
     }
 
     private var metadata: some View {

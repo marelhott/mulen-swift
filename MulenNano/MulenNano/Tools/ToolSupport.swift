@@ -99,7 +99,7 @@ struct ToolScaffold<Controls: View>: View {
                 .padding(DS.Space.l)
             }
             .frame(minWidth: 260, idealWidth: 280, maxWidth: 340)
-            .background(.background)
+            .background(.clear)
 
             results
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -110,10 +110,10 @@ struct ToolScaffold<Controls: View>: View {
     private var results: some View {
         if env.library.images.isEmpty && !busy {
             LibraryEmptyState(systemImage: "photo", title: "Zatím žádné výsledky")
-                .background(Color(nsColor: .windowBackgroundColor))
+                .background(.clear)
         } else {
             LibraryGrid(images: env.library.images)
-                .background(Color(nsColor: .windowBackgroundColor))
+                .background(.clear)
         }
     }
 }
