@@ -6,10 +6,10 @@
 //
 
 import SwiftUI
+import AppKit
 
 struct GeneratedImageDetailSheet: View {
     @Environment(AppEnvironment.self) private var env
-    @Environment(\.dismiss) private var dismiss
 
     let imageID: UUID
     let busy: Bool
@@ -17,13 +17,12 @@ struct GeneratedImageDetailSheet: View {
     let onRegenerate: (String) -> Void
     let onDownload: () -> Void
     let onDelete: () -> Void
-    let onAssignCollection: () -> Void
     let onUndo: () -> Void
     let onRedo: () -> Void
+    let onClose: () -> Void
 
     @State private var editPrompt: String
     @State private var zoom: Double = 1
-    @State private var committedZoom: Double = 1
 
     init(
         image: LibraryImage,
@@ -32,9 +31,9 @@ struct GeneratedImageDetailSheet: View {
         onRegenerate: @escaping (String) -> Void,
         onDownload: @escaping () -> Void,
         onDelete: @escaping () -> Void,
-        onAssignCollection: @escaping () -> Void,
         onUndo: @escaping () -> Void,
-        onRedo: @escaping () -> Void
+        onRedo: @escaping () -> Void,
+        onClose: @escaping () -> Void
     ) {
         self.imageID = image.id
         self.busy = busy
@@ -42,9 +41,9 @@ struct GeneratedImageDetailSheet: View {
         self.onRegenerate = onRegenerate
         self.onDownload = onDownload
         self.onDelete = onDelete
-        self.onAssignCollection = onAssignCollection
         self.onUndo = onUndo
         self.onRedo = onRedo
+        self.onClose = onClose
         _editPrompt = State(initialValue: image.prompt)
     }
 
@@ -59,7 +58,8 @@ struct GeneratedImageDetailSheet: View {
                     .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
             }
         }
-        .frame(minWidth: 860, minHeight: 620)
+        .frame(minWidth: 700, minHeight: 520)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: image?.prompt) { _, newValue in
             guard let newValue, !busy else { return }
             editPrompt = newValue
@@ -70,7 +70,7 @@ struct GeneratedImageDetailSheet: View {
         HStack {
             HStack(spacing: DS.Space.s) {
                 Button {
-                    dismiss()
+                    onClose()
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 14, weight: .semibold))
@@ -79,48 +79,40 @@ struct GeneratedImageDetailSheet: View {
                 }
                 .buttonStyle(.plain)
 
-                HStack(spacing: DS.Space.s) {
-                    Image(systemName: "minus")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    Slider(value: $zoom, in: 0.6...4, step: 0.05)
-                        .frame(width: 120)
-                    Image(systemName: "plus")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, DS.Space.m)
-                .padding(.vertical, DS.Space.s)
-                .background(.regularMaterial, in: Capsule())
+                CompactScaleControl(
+                    value: zoomBinding,
+                    range: 0.5...8,
+                    step: 0.25,
+                    help: "Změnit přiblížení"
+                )
+                .accessibilityLabel("Přiblížení obrázku")
             }
             Spacer()
             VStack(spacing: 2) {
                 Text(image?.updatedAt.formatted(date: .long, time: .standard) ?? "Detail výsledku")
-                    .font(.title3.weight(.semibold))
+                    .font(.dsStandardSemibold)
                 Text(imageSummary)
                     .font(.dsLabel)
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            HStack(spacing: DS.Space.s) {
-                circleAction("info.circle")
-                circleAction("square.and.arrow.up", action: onDownload)
-                circleAction("heart")
-                circleAction("doc.on.doc")
-                circleAction("sparkles", action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        zoom = 1
-                        committedZoom = 1
-                    }
-                })
-            }
-            .padding(.horizontal, DS.Space.m)
-            .padding(.vertical, DS.Space.s)
-            .background(.regularMaterial, in: Capsule())
+            HStack(spacing: DS.Space.m) {
+                Button(action: onDownload) {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.system(size: 18, weight: .regular))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+                .help("Stáhnout")
 
-            Button("Upravit") { }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 18, weight: .regular))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+                .help("Smazat")
+            }
         }
         .padding(DS.Space.l)
         .background(.ultraThinMaterial)
@@ -134,25 +126,12 @@ struct GeneratedImageDetailSheet: View {
                 endPoint: .bottomTrailing
             )
             if let nsImage = image?.nsImage {
-                ScrollView([.horizontal, .vertical]) {
-                    Image(nsImage: nsImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .scaleEffect(zoom)
-                        .blur(radius: busy ? 14 : 0)
-                        .animation(.easeInOut(duration: 0.25), value: busy)
-                        .padding(DS.Space.xxl)
-                        .id(image?.updatedAt)
-                        .gesture(
-                            MagnifyGesture()
-                                .onChanged { value in
-                                    zoom = max(0.6, min(4, committedZoom * value.magnification))
-                                }
-                                .onEnded { _ in
-                                    committedZoom = zoom
-                                }
-                        )
-                }
+                ZoomableImageScrollView(
+                    image: nsImage,
+                    zoom: $zoom,
+                    busy: busy
+                )
+                .id(image?.updatedAt)
             } else {
                 VStack(spacing: DS.Space.m) {
                     Image(systemName: "photo")
@@ -175,8 +154,6 @@ struct GeneratedImageDetailSheet: View {
                 metadata
                 Hairline()
                 promptEditor
-                Hairline()
-                actions
             }
             .padding(DS.Space.l)
         }
@@ -189,7 +166,8 @@ struct GeneratedImageDetailSheet: View {
             metaRow("Provider", image?.providerName ?? "—")
             metaRow("Model", image?.modelID ?? "—")
             metaRow("Poměr stran", image?.aspectRatio ?? "—")
-            metaRow("Rozlišení", image?.resolution ?? "—")
+            metaRow("Profil výstupu", image?.resolution ?? "—")
+            metaRow("Pixely souboru", imageSummary.isEmpty ? "—" : imageSummary)
             if let label = image?.variantLabel, !label.isEmpty {
                 metaRow("Varianta", label)
             }
@@ -210,7 +188,27 @@ struct GeneratedImageDetailSheet: View {
 
     private var promptEditor: some View {
         VStack(alignment: .leading, spacing: DS.Space.s) {
-            SectionLabel("Upravit prompt")
+            HStack(spacing: DS.Space.s) {
+                SectionLabel("Upravit prompt")
+                Spacer()
+                Button(action: onUndo) {
+                    Image(systemName: "arrow.uturn.backward")
+                }
+                .disabled((image?.revisions.isEmpty ?? true) || busy)
+                .help("Zpět")
+                .accessibilityLabel("Zpět")
+
+                Button(action: onRedo) {
+                    Image(systemName: "arrow.uturn.forward")
+                }
+                .disabled((image?.undoneRevisions.isEmpty ?? true) || busy)
+                .help("Znovu")
+                .accessibilityLabel("Znovu")
+            }
+            .buttonStyle(.plain)
+            .font(.dsStandardMedium)
+            .foregroundStyle(.secondary)
+
             TextEditor(text: $editPrompt)
                 .font(.dsLabel)
                 .scrollContentBackground(.hidden)
@@ -239,31 +237,7 @@ struct GeneratedImageDetailSheet: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .disabled(editPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || busy)
-
-            Button("Undo", action: onUndo)
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
-                .disabled((image?.revisions.isEmpty ?? true) || busy)
-
-            Button("Redo", action: onRedo)
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
-                .disabled((image?.undoneRevisions.isEmpty ?? true) || busy)
         }
-    }
-
-    private var actions: some View {
-        VStack(alignment: .leading, spacing: DS.Space.s) {
-            SectionLabel("Akce")
-
-            Button("Stáhnout…", action: onDownload)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Button("Přidat do kolekce…", action: onAssignCollection)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Button("Smazat", role: .destructive, action: onDelete)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .buttonStyle(.borderless)
     }
 
     private var image: LibraryImage? {
@@ -271,21 +245,168 @@ struct GeneratedImageDetailSheet: View {
     }
 
     private var imageSummary: String {
-        guard let image else { return "" }
-        let width = Int(image.nsImage?.size.width ?? 0)
-        let height = Int(image.nsImage?.size.height ?? 0)
+        guard let size = image?.pixelSize else { return "" }
+        let width = Int(size.width)
+        let height = Int(size.height)
         if width > 0, height > 0 {
             return "\(width) × \(height)"
         }
-        return image.aspectRatio ?? ""
+        return ""
     }
 
-    private func circleAction(_ systemName: String, action: @escaping () -> Void = {}) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 18, weight: .regular))
-                .frame(width: 30, height: 30)
+    private var zoomBinding: Binding<Double> {
+        Binding(
+            get: { zoom },
+            set: {
+                zoom = $0
+            }
+        )
+    }
+}
+
+private struct ZoomableImageScrollView: NSViewRepresentable {
+    let image: NSImage
+    @Binding var zoom: Double
+    let busy: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(zoom: $zoom)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = CenteringScrollView()
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasHorizontalScroller = true
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.allowsMagnification = false
+        scrollView.contentInsets = NSEdgeInsets(
+            top: DS.Space.xxl,
+            left: DS.Space.xxl,
+            bottom: DS.Space.xxl,
+            right: DS.Space.xxl
+        )
+
+        let container = NSView(frame: .zero)
+        let imageView = NSImageView(frame: .zero)
+        imageView.image = image
+        imageView.imageScaling = .scaleNone
+        imageView.wantsLayer = true
+
+        container.addSubview(imageView)
+        scrollView.documentView = container
+
+        context.coordinator.scrollView = scrollView
+        context.coordinator.containerView = container
+        context.coordinator.imageView = imageView
+        context.coordinator.update(image: image, zoom: zoom, busy: busy)
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.update(image: image, zoom: zoom, busy: busy)
+    }
+
+    final class Coordinator: NSObject {
+        @Binding private var zoom: Double
+        weak var scrollView: CenteringScrollView?
+        weak var containerView: NSView?
+        weak var imageView: NSImageView?
+        private var lastImageIdentifier: String?
+
+        init(zoom: Binding<Double>) {
+            _zoom = zoom
         }
-        .buttonStyle(.plain)
+
+        func update(image: NSImage, zoom: Double, busy: Bool) {
+            guard let scrollView, let containerView, let imageView else { return }
+            let imageKey = image.tiffRepresentation.map { String($0.hashValue) } ?? UUID().uuidString
+            let imageSize = image.pixelSize
+            let viewport = scrollView.contentView.bounds.size
+            let insets = scrollView.contentInsets
+            let availableSize = CGSize(
+                width: max(1, viewport.width - insets.left - insets.right),
+                height: max(1, viewport.height - insets.top - insets.bottom)
+            )
+            let fittedSize = aspectFitSize(imageSize, inside: availableSize)
+            let displaySize = CGSize(
+                width: max(1, fittedSize.width * zoom),
+                height: max(1, fittedSize.height * zoom)
+            )
+
+            if imageView.image !== image {
+                imageView.image = image
+            }
+
+            if let layer = imageView.layer {
+                layer.cornerRadius = 0
+                layer.masksToBounds = true
+                layer.opacity = busy ? 0.35 : 1
+            }
+
+            imageView.frame = NSRect(origin: .zero, size: displaySize)
+            containerView.frame = NSRect(origin: .zero, size: displaySize)
+            scrollView.minMagnification = 0.5
+            scrollView.maxMagnification = 8
+
+            let shouldRecenter = lastImageIdentifier != imageKey
+            lastImageIdentifier = imageKey
+
+            DispatchQueue.main.async {
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+                scrollView.centerDocumentIfNeeded()
+                if shouldRecenter {
+                    scrollView.contentView.scroll(to: .zero)
+                    scrollView.centerDocumentIfNeeded()
+                }
+            }
+        }
+
+        private func aspectFitSize(_ imageSize: CGSize, inside availableSize: CGSize) -> CGSize {
+            guard imageSize.width > 0, imageSize.height > 0 else { return availableSize }
+            let scale = min(
+                availableSize.width / imageSize.width,
+                availableSize.height / imageSize.height
+            )
+            return CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
+        }
+    }
+}
+
+private final class CenteringScrollView: NSScrollView {
+    func centerDocumentIfNeeded() {
+        guard let documentView else { return }
+        let clipBounds = contentView.bounds
+        var frame = documentView.frame
+
+        frame.origin.x = max(0, (clipBounds.width - frame.width) / 2)
+        frame.origin.y = max(0, (clipBounds.height - frame.height) / 2)
+
+        if documentView.frame.origin != frame.origin {
+            documentView.frame = frame
+        }
+    }
+
+    override func tile() {
+        super.tile()
+        centerDocumentIfNeeded()
+    }
+}
+
+private extension NSImage {
+    var pixelSize: CGSize {
+        if let bitmap = representations.compactMap({ $0 as? NSBitmapImageRep }).first {
+            return CGSize(width: bitmap.pixelsWide, height: bitmap.pixelsHigh)
+        }
+        return size
+    }
+}
+
+private extension LibraryImage {
+    var pixelSize: CGSize? {
+        guard let image = nsImage else { return nil }
+        return image.pixelSize
     }
 }

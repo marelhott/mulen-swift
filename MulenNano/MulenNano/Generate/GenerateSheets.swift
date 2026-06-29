@@ -84,7 +84,7 @@ struct TemplatesSheet: View {
 
     private func header(_ title: String) -> some View {
         HStack {
-            Text(title).font(.headline)
+            Text(title).font(.dsStandardSemibold)
             Spacer()
             Button("Hotovo") { dismiss() }
         }
@@ -101,7 +101,7 @@ struct SavePromptSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.m) {
-            Text("Uložit prompt").font(.headline)
+            Text("Uložit prompt").font(.dsStandardSemibold)
             TextField("Název", text: $name)
                 .textFieldStyle(.roundedBorder)
             Text(prompt).font(.dsCaption).foregroundStyle(.secondary).lineLimit(3)
@@ -136,7 +136,7 @@ struct ManagePromptsSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.m) {
             HStack {
-                Text("Uložené prompty").font(.headline)
+                Text("Uložené prompty").font(.dsStandardSemibold)
                 Spacer()
                 Button("Hotovo") { dismiss() }
             }
@@ -273,7 +273,7 @@ struct CollectionsSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.m) {
             HStack {
-                Text("Kolekce").font(.headline)
+                Text("Kolekce").font(.dsStandardSemibold)
                 Spacer()
                 Button("Hotovo") { dismiss() }
             }
@@ -325,7 +325,7 @@ struct AssignCollectionSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.m) {
-            Text("Přidat do kolekce").font(.headline)
+            Text("Přidat do kolekce").font(.dsStandardSemibold)
             HStack {
                 TextField("Nová kolekce", text: $newName)
                     .textFieldStyle(.roundedBorder)

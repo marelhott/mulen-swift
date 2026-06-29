@@ -3,7 +3,7 @@
 //  MulenNano
 //
 //  Nativní macOS aplikace pro tvorbu a úpravu obrázků pomocí AI.
-//  Design: macOS 26 Liquid Glass — průhledné okno, glass panely, desktop probíjí.
+//  Design: bright, restrained workspace inspired by Photos for macOS.
 //
 
 import SwiftUI
@@ -18,6 +18,7 @@ struct MulenNanoApp: App {
                 .environment(env)
         }
         .windowStyle(.hiddenTitleBar)
+        .windowBackgroundDragBehavior(.enabled)
         .defaultSize(width: 1200, height: 780)
         .commands {
             CommandGroup(replacing: .newItem) {}

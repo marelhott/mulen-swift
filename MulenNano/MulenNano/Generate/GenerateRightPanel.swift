@@ -10,10 +10,6 @@ import SwiftUI
 
 struct GenerateRightPanel: View {
     @Bindable var model: GenerateModel
-    var enhancing: Bool = false
-    var onEnhance: () -> Void = {}
-    var onTemplates: () -> Void = {}
-    var onCollections: () -> Void = {}
 
     private let presetColumns = [GridItem(.flexible(), spacing: DS.Space.s),
                                  GridItem(.flexible(), spacing: DS.Space.s)]
@@ -24,8 +20,6 @@ struct GenerateRightPanel: View {
                 modelsSection
                 Hairline()
                 outputSection
-                Hairline()
-                promptModesSection
             }
             .padding(DS.Space.l)
         }
@@ -50,9 +44,9 @@ struct GenerateRightPanel: View {
         } label: {
             VStack(spacing: 1) {
                 Text(preset.title)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.dsStandardMedium)
                 Text(preset.subtitle)
-                    .font(.system(size: 9))
+                    .font(.dsSmall)
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity)
@@ -88,65 +82,35 @@ struct GenerateRightPanel: View {
                 .pickerStyle(.menu)
                 .labelsHidden()
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text(model.aspectRatio.summary)
+                    .font(.dsCaption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             VStack(alignment: .leading, spacing: DS.Space.xs) {
                 Text("Rozlišení")
                     .font(.dsCaption)
                     .foregroundStyle(.secondary)
-                Picker("", selection: $model.resolution) {
+                Picker("Rozlišení", selection: $model.resolution) {
                     ForEach(ResolutionOption.allCases) { option in
                         Text(option.rawValue).tag(option)
                     }
+                } currentValueLabel: {
+                    Text(model.resolution.rawValue)
+                        .font(.dsStandard)
+                        .foregroundStyle(.primary)
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .controlSize(.small)
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text(model.resolution.summary)
+                    .font(.dsCaption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
-    // MARK: Režimy promptu
-    private var promptModesSection: some View {
-        VStack(alignment: .leading, spacing: DS.Space.s) {
-            SectionLabel("Režim")
-            HStack(spacing: DS.Space.xs) {
-                ForEach(SimpleLinkMode.allCases) { linkChip($0) }
-            }
-            HStack(spacing: DS.Space.xs) {
-                Button(action: onEnhance) {
-                    Group {
-                        if enhancing { ProgressView().controlSize(.mini) }
-                        else { Text("Vylepšit") }
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .disabled(model.prompt.isEmpty || enhancing)
-                Button(action: onTemplates) { Text("Šablony").frame(maxWidth: .infinity) }
-                Button(action: onCollections) { Text("Kolekce").frame(maxWidth: .infinity) }
-            }
-            .font(.dsCaption)
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-        }
-    }
-
-    private func linkChip(_ m: SimpleLinkMode) -> some View {
-        let isActive = model.simpleLinkMode == m
-        return Button {
-            model.simpleLinkMode = isActive ? nil : m
-        } label: {
-            Text(m.label)
-                .font(.system(size: 11, weight: .medium))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: DS.Radius.s, style: .continuous)
-                        .fill(isActive ? Color.accentColor.opacity(0.14) : DS.Palette.fieldBackground)
-                )
-                .foregroundStyle(isActive ? Color.accentColor : .primary)
-        }
-        .buttonStyle(.plain)
-        .help(m.summary)
-    }
 }

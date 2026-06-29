@@ -2,8 +2,7 @@
 //  RootView.swift
 //  MulenNano
 //
-//  macOS 26 Liquid Glass layout:
-//  Průhledné okno (desktop vibrancy) + úzký icon sidebar + zaoblený glass panel pro obsah.
+//  Opaque, quiet layout inspired by Photos for macOS.
 //
 
 import SwiftUI
@@ -13,26 +12,32 @@ struct RootView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Úzký icon sidebar — floatuje nad desktop vibrancy, bez vlastního pozadí
-            GlassIconSidebar(selection: $selection)
-                .frame(width: 64)
+            GlassSidebar(selection: $selection)
+                .frame(width: 184)
+                .background(Color(red: 0.957, green: 0.957, blue: 0.969))
 
-            // Hlavní glass panel — macOS 26 .glassEffect() sampuluje wallpaper za oknem
+            Rectangle()
+                .fill(.black.opacity(0.08))
+                .frame(width: 1)
+
             contentView(for: selection)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .padding(.top, 8)
-                .padding(.bottom, 8)
-                .padding(.trailing, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.white)
         }
         .frame(minWidth: 920, minHeight: 600)
         .ignoresSafeArea()
-        // Desktop vibrancy jako pozadí celého okna
-        .background {
-            DesktopVibrancyBackground()
+        .background(Color.white)
+        .background(PhotosWindowConfiguration())
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Color.black.opacity(0.22), lineWidth: 1)
                 .ignoresSafeArea()
+                .allowsHitTesting(false)
         }
-        // Nastaví NSWindow průhledným
-        .background(WindowTransparency())
+        .font(.dsStandard)
+        .tracking(0)
+        .lineSpacing(0)
+        .environment(\.colorScheme, .light)
     }
 
     @ViewBuilder
@@ -50,65 +55,77 @@ struct RootView: View {
     }
 }
 
-// MARK: - Icon Sidebar
+// MARK: - Sidebar
 
-struct GlassIconSidebar: View {
+struct GlassSidebar: View {
     @Binding var selection: SidebarItem
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Prostor pro traffic lights (hiddenTitleBar je renderuje automaticky vlevo nahoře)
-            Color.clear.frame(height: 48)
+        VStack(alignment: .leading, spacing: 0) {
+            Color.clear.frame(height: 50)
 
-            VStack(spacing: 2) {
-                ForEach(SidebarItem.tools) { item in
-                    iconButton(item)
-                }
-            }
-            .padding(.horizontal, 8)
+            navigationSection("Nástroje", items: SidebarItem.tools)
 
             Spacer()
 
-            VStack(spacing: 2) {
-                ForEach(SidebarItem.library) { item in
-                    iconButton(item)
-                }
-            }
-            .padding(.horizontal, 8)
+            navigationSection("Knihovna", items: SidebarItem.library)
 
-            // Nastavení
             Divider()
-                .opacity(0.3)
+                .opacity(0.22)
                 .padding(.vertical, 8)
 
             SettingsLink {
-                iconShape("gearshape", active: false)
+                sidebarLabel(title: "Nastavení", systemImage: "gearshape", active: false)
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 10)
 
-            Color.clear.frame(height: 14)
+            Color.clear.frame(height: 12)
         }
     }
 
-    private func iconButton(_ item: SidebarItem) -> some View {
+    private func navigationSection(_ title: String, items: [SidebarItem]) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title.uppercased())
+                .font(.dsSmallSemibold)
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 3)
+
+            ForEach(items) { item in
+                sidebarButton(item)
+            }
+        }
+        .padding(.horizontal, 10)
+    }
+
+    private func sidebarButton(_ item: SidebarItem) -> some View {
         Button { selection = item } label: {
-            iconShape(item.systemImage, active: selection == item)
+            sidebarLabel(title: item.title, systemImage: item.systemImage, active: selection == item)
         }
         .buttonStyle(.plain)
-        .help(item.title)
     }
 
-    private func iconShape(_ name: String, active: Bool) -> some View {
-        Image(systemName: name)
-            .font(.system(size: 16, weight: active ? .semibold : .regular))
-            .frame(width: 44, height: 38)
-            .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(active ? Color.accentColor.opacity(0.2) : Color.clear)
-            )
-            .foregroundStyle(active ? Color.accentColor : Color.primary.opacity(0.55))
-            .contentShape(Rectangle())
+    private func sidebarLabel(title: String, systemImage: String, active: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: active ? .semibold : .regular))
+                .frame(width: 16)
+            Text(title)
+                .font(active ? .dsStandardMedium : .dsStandard)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 9)
+        .frame(height: 30)
+        .background {
+            if active {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.13))
+            }
+        }
+        .foregroundStyle(active ? Color.primary : Color.secondary)
+        .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 }
 

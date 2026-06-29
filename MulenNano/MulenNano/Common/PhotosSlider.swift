@@ -72,3 +72,39 @@ struct PhotosSlider: View {
         .frame(height: height)
     }
 }
+
+struct CompactScaleControl: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let step: Double
+    var sliderWidth: CGFloat = 96
+    let help: String
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Button {
+                value = max(range.lowerBound, value - step)
+            } label: {
+                Image(systemName: "minus")
+                    .frame(width: 16, height: 20)
+            }
+            .disabled(value <= range.lowerBound)
+
+            Slider(value: $value, in: range)
+                .controlSize(.mini)
+                .frame(width: sliderWidth)
+
+            Button {
+                value = min(range.upperBound, value + step)
+            } label: {
+                Image(systemName: "plus")
+                    .frame(width: 16, height: 20)
+            }
+            .disabled(value >= range.upperBound)
+        }
+        .font(.dsSmallMedium)
+        .foregroundStyle(.secondary)
+        .buttonStyle(.plain)
+        .help(help)
+    }
+}

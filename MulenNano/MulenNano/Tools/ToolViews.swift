@@ -175,7 +175,7 @@ private struct Chip: View {
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 11, weight: .medium))
+                .font(.dsStandardMedium)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 6)
                 .background(

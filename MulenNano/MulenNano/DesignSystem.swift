@@ -23,27 +23,32 @@ enum DS {
     // MARK: Poloměry (jemné, dle macOS)
     enum Radius {
         static let s:  CGFloat = 5
-        static let m:  CGFloat = 7
-        static let l:  CGFloat = 10
+        static let m:  CGFloat = 9
+        static let l:  CGFloat = 13
     }
 
     enum Palette {
-        static let hairline = Color.primary.opacity(0.08)
-        static let fieldBackground = Color.primary.opacity(0.04)
+        static let hairline = Color.primary.opacity(0.11)
+        static let fieldBackground = Color.primary.opacity(0.055)
+        static let fieldBorder = Color.primary.opacity(0.12)
     }
 }
 
-// MARK: - Typografie (nativní velikosti macOS)
+// MARK: - Typography
 extension Font {
-    /// Drobný šedý nadpis skupiny (jako „ÚPRAVA" v editoru Fotek).
-    static let dsSection = Font.system(size: 11, weight: .semibold)
-    /// Běžný popisek ovládacího prvku (~13pt nativní).
-    static let dsLabel   = Font.system(size: 13, weight: .regular)
-    /// Sekundární drobný text.
-    static let dsCaption = Font.system(size: 11, weight: .regular)
-    static let dsValue   = Font.system(size: 11, weight: .regular).monospacedDigit()
-    /// Nadpis prázdného stavu — klidný, ne velký.
-    static let dsEmptyTitle = Font.system(size: 15, weight: .medium)
+    // The app intentionally uses only these two text sizes.
+    static let dsStandard = Font.system(size: 12, weight: .regular)
+    static let dsStandardMedium = Font.system(size: 12, weight: .medium)
+    static let dsStandardSemibold = Font.system(size: 12, weight: .semibold)
+    static let dsSmall = Font.system(size: 11, weight: .regular)
+    static let dsSmallMedium = Font.system(size: 11, weight: .medium)
+    static let dsSmallSemibold = Font.system(size: 11, weight: .semibold)
+
+    static let dsSection = Font.dsSmallSemibold
+    static let dsLabel = Font.dsStandard
+    static let dsCaption = Font.dsSmall
+    static let dsValue = Font.dsSmall.monospacedDigit()
+    static let dsEmptyTitle = Font.dsStandardMedium
 }
 
 // MARK: - Drobný šedý nadpis skupiny (Apple Photos styl)

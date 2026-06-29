@@ -3,23 +3,29 @@
 //  MulenNano
 //
 //  Generovací pohled — 3 sloupce. Koordinuje veškerou generovací logiku (1:1 s webem):
-//  generování, Variace (seed×3), Interpretace (AI×3), Vylepšit, šablony, kolekce, akce u výsledků.
+//  generování, Variace (seed×3), Interpretace (AI×3), šablony, kolekce a akce u výsledků.
 //
 
 import SwiftUI
 import UniformTypeIdentifiers
+
+private struct GenerationGroup: Identifiable {
+    let id: UUID
+    let createdAt: Date
+    let images: [LibraryImage]
+}
 
 struct GenerateView: View {
     @Environment(AppEnvironment.self) private var env
     @State private var model = GenerateModel()
 
     @State private var isGenerating = false
-    @State private var isEnhancing = false
     @State private var errorMessage: String?
     @State private var statusText: String?
+    @State private var generationProgressCurrent: Double = 0
+    @State private var generationProgressTotal: Double = 1
 
     @State private var showTemplates = false
-    @State private var showCollections = false
     @State private var showSavePrompt = false
     @State private var showManagePrompts = false
     @State private var collectionTarget: LibraryImage?
@@ -28,12 +34,64 @@ struct GenerateView: View {
     @State private var promptHistory: [String] = [""]
     @State private var promptFuture: [String] = []
     @State private var suppressPromptHistory = false
+    @State private var thumbnailSize = (UserDefaults.standard.object(forKey: "generate.thumbnailSize") as? NSNumber)?.doubleValue ?? 320
 
-    private let grid = [GridItem(.adaptive(minimum: 180, maximum: 260), spacing: DS.Space.m)]
+    private let defaultThumbnailSize = 320.0
+    private let thumbnailRange = 220.0...760.0
+
+    private var grid: [GridItem] {
+        [GridItem(.adaptive(minimum: thumbnailSize, maximum: thumbnailSize), spacing: DS.Space.m)]
+    }
 
     private enum GenMode { case normal, variace, interpretace }
 
     var body: some View {
+        ZStack {
+            workspace
+
+            if let detailImage {
+                detailOverlay(detailImage)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheet(isPresented: $showTemplates) {
+            TemplatesSheet { model.prompt = $0 }
+        }
+        .sheet(isPresented: $showSavePrompt) {
+            SavePromptSheet(prompt: model.prompt)
+        }
+        .sheet(isPresented: $showManagePrompts) {
+            ManagePromptsSheet { setPrompt($0) }
+                .environment(env)
+        }
+        .sheet(item: $collectionTarget) { image in
+            AssignCollectionSheet(image: image)
+        }
+        .onAppear {
+            if promptHistory == [""] {
+                promptHistory = [model.prompt]
+            }
+            thumbnailSize = min(
+                thumbnailRange.upperBound,
+                max(defaultThumbnailSize, thumbnailSize)
+            )
+            UserDefaults.standard.set(thumbnailSize, forKey: "generate.thumbnailSize")
+        }
+        .onChange(of: thumbnailSize) { _, newValue in
+            UserDefaults.standard.set(newValue, forKey: "generate.thumbnailSize")
+        }
+        .onChange(of: model.prompt) { _, newValue in
+            guard !suppressPromptHistory else { return }
+            guard promptHistory.last != newValue else { return }
+            promptHistory.append(newValue)
+            if promptHistory.count > 100 {
+                promptHistory.removeFirst(promptHistory.count - 100)
+            }
+            promptFuture.removeAll()
+        }
+    }
+
+    private var workspace: some View {
         HStack(spacing: 0) {
             GenerateLeftPanel(
                 model: model,
@@ -45,6 +103,7 @@ struct GenerateView: View {
                 onGenerate: { run(.normal) },
                 onVariace: { run(.variace) },
                 onInterpretace: { run(.interpretace) },
+                onTemplates: { showTemplates = true },
                 onSavePrompt: { showSavePrompt = true },
                 onManagePrompts: { showManagePrompts = true },
                 onPickSaved: { setPrompt($0) },
@@ -61,62 +120,9 @@ struct GenerateView: View {
                 .fill(.primary.opacity(0.06))
                 .frame(width: 1)
                 .ignoresSafeArea()
-            GenerateRightPanel(
-                model: model,
-                enhancing: isEnhancing,
-                onEnhance: enhance,
-                onTemplates: { showTemplates = true },
-                onCollections: { showCollections = true }
-            )
+            GenerateRightPanel(model: model)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .sheet(isPresented: $showTemplates) {
-            TemplatesSheet { model.prompt = $0 }
-        }
-        .sheet(isPresented: $showCollections) {
-            CollectionsSheet()
-        }
-        .sheet(isPresented: $showSavePrompt) {
-            SavePromptSheet(prompt: model.prompt)
-        }
-        .sheet(isPresented: $showManagePrompts) {
-            ManagePromptsSheet { setPrompt($0) }
-                .environment(env)
-        }
-        .sheet(item: $collectionTarget) { image in
-            AssignCollectionSheet(image: image)
-        }
-        .sheet(item: $detailImage) { image in
-            GeneratedImageDetailSheet(
-                image: image,
-                busy: detailEditImageID == image.id && isGenerating,
-                errorMessage: errorMessage,
-                onRegenerate: { iterate(from: image, prompt: $0) },
-                onDownload: { download(image) },
-                onDelete: {
-                    env.library.moveToTrash(image.id)
-                    detailImage = nil
-                },
-                onAssignCollection: { collectionTarget = image },
-                onUndo: { env.library.undoLastRevision(image.id) },
-                onRedo: { env.library.redoLastRevision(image.id) }
-            )
-            .environment(env)
-        }
-        .onAppear {
-            if promptHistory == [""] {
-                promptHistory = [model.prompt]
-            }
-        }
-        .onChange(of: model.prompt) { _, newValue in
-            guard !suppressPromptHistory else { return }
-            guard promptHistory.last != newValue else { return }
-            promptHistory.append(newValue)
-            if promptHistory.count > 100 {
-                promptHistory.removeFirst(promptHistory.count - 100)
-            }
-            promptFuture.removeAll()
-        }
     }
 
     // MARK: Střed — výsledky
@@ -126,11 +132,9 @@ struct GenerateView: View {
                 SectionLabel("Výsledky generování")
                 Spacer()
                 if isGenerating {
-                    if let statusText {
-                        Text(statusText).font(.dsCaption).foregroundStyle(.secondary)
-                    }
-                    ProgressView().controlSize(.small)
+                    generationProgressView
                 }
+                thumbnailSizeControl
             }
             .padding(.horizontal, DS.Space.xl)
             .padding(.vertical, DS.Space.m)
@@ -148,9 +152,15 @@ struct GenerateView: View {
                 emptyState
             } else {
                 ScrollView {
-                    LazyVGrid(columns: grid, spacing: DS.Space.m) {
-                        if isGenerating { placeholderTile }
-                        ForEach(env.library.images) { resultTile($0) }
+                    LazyVStack(alignment: .leading, spacing: DS.Space.xl) {
+                        if isGenerating {
+                            LazyVGrid(columns: grid, alignment: .leading, spacing: DS.Space.m) {
+                                placeholderTile
+                            }
+                        }
+                        ForEach(generationGroups) { group in
+                            generationRow(group)
+                        }
                     }
                     .padding(DS.Space.xl)
                 }
@@ -158,6 +168,83 @@ struct GenerateView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.clear)
+    }
+
+    private var generationProgressView: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            if let statusText {
+                Text(statusText)
+                    .font(.dsCaption)
+                    .foregroundStyle(.secondary)
+            }
+
+            ProgressView(value: generationProgressCurrent, total: generationProgressTotal)
+                .progressViewStyle(.linear)
+                .frame(width: 140)
+
+            Text(progressDetailText)
+                .font(.dsSmall)
+                .foregroundStyle(.tertiary)
+        }
+        .frame(width: 140, alignment: .trailing)
+    }
+
+    private var progressDetailText: String {
+        let current = Int(min(generationProgressCurrent, generationProgressTotal))
+        let total = Int(max(generationProgressTotal, 1))
+        return "\(current) / \(total)"
+    }
+
+    private var thumbnailSizeControl: some View {
+        CompactScaleControl(
+            value: $thumbnailSize,
+            range: thumbnailRange,
+            step: 32,
+            help: "Změnit velikost náhledů"
+        )
+        .accessibilityLabel("Velikost náhledů")
+    }
+
+    private var generationGroups: [GenerationGroup] {
+        var order: [UUID] = []
+        var grouped: [UUID: [LibraryImage]] = [:]
+
+        for image in env.library.images {
+            let groupID = image.runID ?? image.id
+            if grouped[groupID] == nil { order.append(groupID) }
+            grouped[groupID, default: []].append(image)
+        }
+
+        return order.compactMap { id in
+            guard let images = grouped[id], let createdAt = images.map(\.createdAt).max() else { return nil }
+            return GenerationGroup(id: id, createdAt: createdAt, images: images)
+        }
+    }
+
+    private func generationRow(_ group: GenerationGroup) -> some View {
+        VStack(alignment: .leading, spacing: DS.Space.s) {
+            HStack(spacing: DS.Space.s) {
+                Text(group.createdAt.formatted(date: .abbreviated, time: .shortened))
+                    .font(.dsSmall)
+                    .foregroundStyle(.secondary)
+
+                Button(role: .destructive) {
+                    deleteGeneration(group)
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.plain)
+                .font(.dsSmall)
+                .foregroundStyle(.tertiary)
+                .help("Smazat celou generaci")
+
+                Spacer(minLength: 0)
+            }
+
+            LazyVGrid(columns: grid, alignment: .leading, spacing: DS.Space.m) {
+                ForEach(group.images) { resultTile($0) }
+            }
+        }
     }
 
     private var emptyState: some View {
@@ -189,15 +276,28 @@ struct GenerateView: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: DS.Radius.l, style: .continuous))
-                    .overlay(alignment: .bottomTrailing) {
+                    .overlay(alignment: .bottomLeading) {
                         if let label = image.variantLabel {
                             Text(label)
-                                .font(.system(size: 9, weight: .semibold))
+                                .font(.dsSmallSemibold)
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 6).padding(.vertical, 2)
                                 .background(.black.opacity(0.55), in: Capsule())
                                 .padding(6)
                         }
+                    }
+                    .overlay(alignment: .bottomTrailing) {
+                        Button(role: .destructive) {
+                            env.library.moveToTrash(image.id)
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(.white)
+                                .frame(width: 26, height: 26)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Smazat")
                     }
             }
             if !image.prompt.isEmpty {
@@ -220,6 +320,55 @@ struct GenerateView: View {
         }
     }
 
+    private func deleteGeneration(_ group: GenerationGroup) {
+        if let detailImage, group.images.contains(where: { $0.id == detailImage.id }) {
+            self.detailImage = nil
+        }
+        env.library.moveToTrash(Set(group.images.map(\.id)))
+    }
+
+    private func detailOverlay(_ image: LibraryImage) -> some View {
+        ZStack {
+            Color.black.opacity(0.12)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { closeDetail() }
+
+            GeneratedImageDetailSheet(
+                image: image,
+                busy: detailEditImageID == image.id && isGenerating,
+                errorMessage: errorMessage,
+                onRegenerate: { iterate(from: image, prompt: $0) },
+                onDownload: { download(image) },
+                onDelete: {
+                    env.library.moveToTrash(image.id)
+                    closeDetail()
+                },
+                onUndo: { env.library.undoLastRevision(image.id) },
+                onRedo: { env.library.redoLastRevision(image.id) },
+                onClose: closeDetail
+            )
+            .environment(env)
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.black.opacity(0.14), lineWidth: 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .onTapGesture { }
+            .padding(24)
+        }
+        .zIndex(10)
+        .transition(.opacity.combined(with: .scale(scale: 0.985)))
+    }
+
+    private func closeDetail() {
+        withAnimation(.easeOut(duration: 0.16)) {
+            detailImage = nil
+        }
+    }
+
     // MARK: Generování
     private func run(_ mode: GenMode) {
         errorMessage = nil
@@ -238,9 +387,14 @@ struct GenerateView: View {
         let runID = UUID()
         let userPrompt = model.prompt
         isGenerating = true
+        configureProgress(for: mode)
 
         Task {
-            defer { isGenerating = false; statusText = nil }
+            defer {
+                isGenerating = false
+                statusText = nil
+                resetProgress()
+            }
             do {
                 switch mode {
                 case .normal:
@@ -248,6 +402,7 @@ struct GenerateView: View {
                     let req = makeRequest(prompt: userPrompt, inputs: inputs, modelID: preset.modelID)
                     for _ in 0..<model.count {
                         try await produce(provider, req, apiKey: apiKey, label: userPrompt, runID: runID, variant: nil)
+                        advanceProgress()
                     }
 
                 case .variace:
@@ -255,6 +410,7 @@ struct GenerateView: View {
                     let req = makeRequest(prompt: userPrompt, inputs: inputs, modelID: preset.modelID)
                     for i in 1...3 {
                         try await produce(provider, req, apiKey: apiKey, label: userPrompt, runID: runID, variant: "Variace \(i)")
+                        advanceProgress()
                     }
 
                 case .interpretace:
@@ -266,9 +422,11 @@ struct GenerateView: View {
                         return
                     }
                     let variants = try await gemini.promptVariants(userPrompt, apiKey: geminiKey)
+                    generationProgressTotal = Double(max(variants.count, 1))
                     for v in variants {
                         let req = makeRequest(prompt: v.prompt, inputs: inputs, modelID: preset.modelID)
                         try await produce(provider, req, apiKey: apiKey, label: v.prompt, runID: runID, variant: v.approach)
+                        advanceProgress()
                     }
                 }
             } catch {
@@ -342,29 +500,20 @@ struct GenerateView: View {
         let inputs = orderedInputImages()
         let runID = UUID()
         isGenerating = true
+        generationProgressCurrent = 0
+        generationProgressTotal = 1
         Task {
-            defer { isGenerating = false }
+            defer {
+                isGenerating = false
+                resetProgress()
+            }
             do {
                 let req = makeRequest(prompt: image.prompt, inputs: inputs, modelID: preset.modelID)
                 try await produce(provider, req, apiKey: apiKey, label: image.prompt, runID: runID, variant: nil)
+                advanceProgress()
             } catch {
                 errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
-        }
-    }
-
-    private func enhance() {
-        guard !model.prompt.isEmpty, !isEnhancing else { return }
-        guard let apiKey = env.providers.apiKey(for: .gemini), !apiKey.isEmpty,
-              let provider = env.providers.provider(for: .gemini) else {
-            errorMessage = "Chybí Gemini API klíč pro vylepšení promptu."
-            return
-        }
-        isEnhancing = true
-        Task {
-            defer { isEnhancing = false }
-            do { setPrompt(try await provider.enhancePrompt(model.prompt, apiKey: apiKey)) }
-            catch { errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription }
         }
     }
 
@@ -415,12 +564,15 @@ struct GenerateView: View {
         isGenerating = true
         statusText = "Upravuji…"
         detailEditImageID = image.id
+        generationProgressCurrent = 0
+        generationProgressTotal = 1
 
         Task {
             defer {
                 isGenerating = false
                 statusText = nil
                 detailEditImageID = nil
+                resetProgress()
             }
             do {
                 try await produce(
@@ -432,10 +584,32 @@ struct GenerateView: View {
                     variant: nil,
                     replacing: image.id
                 )
+                advanceProgress()
             } catch {
                 errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
         }
+    }
+
+    private func configureProgress(for mode: GenMode) {
+        generationProgressCurrent = 0
+        switch mode {
+        case .normal:
+            generationProgressTotal = Double(max(model.count, 1))
+        case .variace:
+            generationProgressTotal = 3
+        case .interpretace:
+            generationProgressTotal = 3
+        }
+    }
+
+    private func advanceProgress() {
+        generationProgressCurrent = min(generationProgressCurrent + 1, generationProgressTotal)
+    }
+
+    private func resetProgress() {
+        generationProgressCurrent = 0
+        generationProgressTotal = 1
     }
 
     private func resolvedProviderKind(for image: LibraryImage) -> AIProviderKind {

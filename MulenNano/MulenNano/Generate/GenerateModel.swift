@@ -21,6 +21,30 @@ enum AspectRatioOption: String, CaseIterable, Identifiable {
     case wide = "16:9"
 
     var id: String { rawValue }
+    var summary: String {
+        switch self {
+        case .original:
+            "Zachová původní poměr bez vynucení nového formátu."
+        case .square:
+            "Univerzální čtverec vhodný pro produkt, avatar i feed."
+        case .portrait:
+            "Vyšší portrét pro postavu, módu a mobilní kompozice."
+        case .landscape:
+            "Širší záběr pro scénu, interiér a horizontální kompozici."
+        case .photoPortrait:
+            "Fotografický portrét vhodný pro lifestyle a editorial."
+        case .photoLandscape:
+            "Fotografická krajina pro produkt v prostoru a širší scénu."
+        case .classicLandscape:
+            "Klasický horizontální formát blízký běžné fotografii."
+        case .classicPortrait:
+            "Klasický vertikální formát s přirozeným fotografickým dojmem."
+        case .tall:
+            "Vysoký mobilní formát pro stories, reels a plakátové kompozice."
+        case .wide:
+            "Široký filmový formát pro bannery, scénu a výrazný horizont."
+        }
+    }
 }
 
 enum ResolutionOption: String, CaseIterable, Identifiable {
@@ -29,6 +53,16 @@ enum ResolutionOption: String, CaseIterable, Identifiable {
     case fourK = "4K"
 
     var id: String { rawValue }
+    var summary: String {
+        switch self {
+        case .oneK:
+            "Rychlý základní výstup pro běžné použití a iterace."
+        case .twoK:
+            "Vyšší detail pro kvalitnější náhled a jemnější textury."
+        case .fourK:
+            "Nejvyšší cílová kvalita pro maximální detail, pokud ji model opravdu vrátí."
+        }
+    }
 }
 
 enum PromptMode: String, CaseIterable, Identifiable {
@@ -61,6 +95,14 @@ enum MultiRefMode: String, CaseIterable, Identifiable {
     case together = "Sloučit"
     case batch = "Varianty"
     var id: String { rawValue }
+    var summary: String {
+        switch self {
+        case .together:
+            "Použije všechny vstupy naráz a spojí je do jednoho výsledku."
+        case .batch:
+            "Pracuje s referencemi po variantách a zkouší různé kombinace."
+        }
+    }
 }
 
 /// Režimy promptu v simple módu (původní „Styl / Merge / Object").
@@ -76,9 +118,12 @@ enum SimpleLinkMode: String, CaseIterable, Identifiable {
     }
     var summary: String {
         switch self {
-        case .styl: "kompozice"
-        case .merge: "spojení"
-        case .object: "objekt"
+        case .styl:
+            "Přenese vzhled a atmosféru stylových referencí, ale zachová obsah zadání."
+        case .merge:
+            "Spojí obsah vstupních obrázků do jedné přirozené a soudržné scény."
+        case .object:
+            "Použije referenci jako konkrétní objekt nebo produkt a zachová jeho podobu."
         }
     }
     /// Klíč shodný s webem (style/merge/object) pro [LINK MODE] hlavičku.

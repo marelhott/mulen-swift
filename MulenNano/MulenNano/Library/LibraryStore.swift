@@ -261,8 +261,15 @@ final class LibraryStore {
     }
 
     func moveToTrash(_ id: UUID) {
-        guard let idx = images.firstIndex(where: { $0.id == id }) else { return }
-        trashed.insert(images.remove(at: idx), at: 0)
+        moveToTrash([id])
+    }
+
+    func moveToTrash(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        let moving = images.filter { ids.contains($0.id) }
+        guard !moving.isEmpty else { return }
+        images.removeAll { ids.contains($0.id) }
+        trashed.insert(contentsOf: moving, at: 0)
         save()
     }
 

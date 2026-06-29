@@ -16,6 +16,9 @@ struct SettingsView: View {
                 .tabItem { Label("Úložiště", systemImage: "folder") }
         }
         .frame(width: 480, height: 320)
+        .font(.dsStandard)
+        .tracking(0)
+        .lineSpacing(0)
     }
 }
 
@@ -41,7 +44,7 @@ struct StorageSettings: View {
                 }
             } header: {
                 Text("Kam se ukládají vygenerované obrázky a metadata. Lze i externí disk.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.dsSmall).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -72,7 +75,7 @@ struct APIKeysSettings: View {
                          hint: "OpenAI → API keys (model gpt-image-1)")
             } header: {
                 Text("Klíče se ukládají bezpečně do macOS Keychain.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.dsSmall).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -98,11 +101,11 @@ private struct KeyRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(label).font(.callout.weight(.medium))
+                Text(label).font(.dsStandardMedium)
                 Spacer()
                 if registry.hasKey(for: kind) {
                     Label("uloženo", systemImage: "checkmark.circle.fill")
-                        .font(.caption2)
+                        .font(.dsSmall)
                         .foregroundStyle(.green)
                         .labelStyle(.titleAndIcon)
                 }
@@ -117,7 +120,7 @@ private struct KeyRow: View {
                 }
                 .disabled(value.isEmpty)
             }
-            Text(hint).font(.caption2).foregroundStyle(.secondary)
+            Text(hint).font(.dsSmall).foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
     }
