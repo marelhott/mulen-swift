@@ -2,7 +2,7 @@
 //  LibraryStore.swift
 //  MulenNano
 //
-//  Knihovna vygenerovaných obrázků + koš + kolekce, perzistentní na disku.
+//  Knihovna vygenerovaných obrázků + koš, perzistentní na disku.
 //  Obrázky = soubory PNG ve zvolené složce; metadata = library.json.
 //
 
@@ -32,7 +32,6 @@ struct LibraryImage: Identifiable, Hashable {
     var updatedAt: Date
     var runID: UUID?
     var variantLabel: String?
-    var collectionIDs: Set<UUID>
     var groundingLinks: [GroundingLink] = []
     var revisions: [LibraryImageRevision] = []
     var undoneRevisions: [LibraryImageRevision] = []
@@ -41,17 +40,21 @@ struct LibraryImage: Identifiable, Hashable {
     var imageData: Data? { try? Data(contentsOf: fileURL) }
 }
 
-struct AppCollection: Identifiable, Hashable {
+struct SavedInputImage: Identifiable, Hashable {
     let id: UUID
-    var name: String
+    let fileURL: URL
+    let createdAt: Date
+
+    var nsImage: NSImage? { NSImage(contentsOf: fileURL) }
 }
 
 @Observable
 final class LibraryStore {
     private(set) var images: [LibraryImage] = []
     private(set) var trashed: [LibraryImage] = []
-    private(set) var collections: [AppCollection] = []
+    private(set) var inputImages: [SavedInputImage] = []
     private(set) var folder: URL
+    private(set) var lastErrorMessage: String?
 
     private let fileManager = FileManager.default
     private static let folderKey = "mulen.storageFolder"
@@ -60,11 +63,14 @@ final class LibraryStore {
         self.folder = LibraryStore.resolveFolder()
         ensureFolders()
         load()
+        loadInputImages()
     }
 
     // MARK: Cesty
     private var imagesFolder: URL { folder.appendingPathComponent("images", isDirectory: true) }
+    private var inputImagesFolder: URL { folder.appendingPathComponent("inputs", isDirectory: true) }
     private var indexURL: URL { folder.appendingPathComponent("library.json") }
+    private var inputIndexURL: URL { folder.appendingPathComponent("inputs.json") }
 
     private static func resolveFolder() -> URL {
         if let path = UserDefaults.standard.string(forKey: folderKey) {
@@ -76,27 +82,55 @@ final class LibraryStore {
     }
 
     private func ensureFolders() {
-        try? fileManager.createDirectory(at: imagesFolder, withIntermediateDirectories: true)
+        do {
+            try fileManager.createDirectory(at: imagesFolder, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: inputImagesFolder, withIntermediateDirectories: true)
+            lastErrorMessage = nil
+        } catch {
+            recordError("Nepodařilo se připravit složky knihovny: \(error.localizedDescription)")
+        }
     }
 
     // MARK: Změna složky
     func setFolder(_ newFolder: URL) {
-        // Přesun stávajících souborů do nové složky.
-        let newImages = newFolder.appendingPathComponent("images", isDirectory: true)
-        try? fileManager.createDirectory(at: newImages, withIntermediateDirectories: true)
-        for img in images + trashed {
-            let dest = newImages.appendingPathComponent(img.fileURL.lastPathComponent)
-            if !fileManager.fileExists(atPath: dest.path) {
-                try? fileManager.copyItem(at: img.fileURL, to: dest)
+        do {
+            // Přesun stávajících souborů do nové složky.
+            let newImages = newFolder.appendingPathComponent("images", isDirectory: true)
+            let newInputs = newFolder.appendingPathComponent("inputs", isDirectory: true)
+            try fileManager.createDirectory(at: newImages, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: newInputs, withIntermediateDirectories: true)
+
+            for img in images + trashed {
+                let dest = newImages.appendingPathComponent(img.fileURL.lastPathComponent)
+                if !fileManager.fileExists(atPath: dest.path) {
+                    try fileManager.copyItem(at: img.fileURL, to: dest)
+                }
             }
+            for input in inputImages {
+                let destination = newInputs.appendingPathComponent(input.fileURL.lastPathComponent)
+                if !fileManager.fileExists(atPath: destination.path) {
+                    try fileManager.copyItem(at: input.fileURL, to: destination)
+                }
+            }
+
+            folder = newFolder
+            UserDefaults.standard.set(newFolder.path, forKey: Self.folderKey)
+            ensureFolders()
+            images = images.map { remap($0) }
+            trashed = trashed.map { remap($0) }
+            inputImages = inputImages.map {
+                SavedInputImage(
+                    id: $0.id,
+                    fileURL: inputImagesFolder.appendingPathComponent($0.fileURL.lastPathComponent),
+                    createdAt: $0.createdAt
+                )
+            }
+            save()
+            saveInputImages()
+            lastErrorMessage = nil
+        } catch {
+            recordError("Nepodařilo se změnit složku knihovny: \(error.localizedDescription)")
         }
-        folder = newFolder
-        UserDefaults.standard.set(newFolder.path, forKey: Self.folderKey)
-        ensureFolders()
-        // Přepočítat fileURL na novou složku.
-        images = images.map { remap($0) }
-        trashed = trashed.map { remap($0) }
-        save()
     }
 
     private func remap(_ img: LibraryImage) -> LibraryImage {
@@ -108,7 +142,7 @@ final class LibraryStore {
                             aspectRatio: img.aspectRatio, resolution: img.resolution,
                             createdAt: img.createdAt, updatedAt: img.updatedAt,
                             runID: img.runID, variantLabel: img.variantLabel,
-                            collectionIDs: img.collectionIDs, groundingLinks: img.groundingLinks,
+                            groundingLinks: img.groundingLinks,
                             revisions: img.revisions, undoneRevisions: img.undoneRevisions)
         return copy
     }
@@ -122,13 +156,18 @@ final class LibraryStore {
                groundingLinks: [GroundingLink] = []) -> LibraryImage {
         let id = UUID()
         let url = imagesFolder.appendingPathComponent("\(id.uuidString).png")
-        try? imageData.write(to: url)
+        do {
+            try imageData.write(to: url, options: .atomic)
+            lastErrorMessage = nil
+        } catch {
+            recordError("Nepodařilo se uložit obrázek do knihovny: \(error.localizedDescription)")
+        }
         let image = LibraryImage(id: id, fileURL: url, prompt: prompt, modelID: modelID,
                                  providerName: providerName,
                                  aspectRatio: aspectRatio, resolution: resolution,
                                  createdAt: Date(), updatedAt: Date(),
                                  runID: runID, variantLabel: variantLabel,
-                                 collectionIDs: [], groundingLinks: groundingLinks)
+                                 groundingLinks: groundingLinks)
         images.insert(image, at: 0)
         save()
         return image
@@ -285,44 +324,47 @@ final class LibraryStore {
         save()
     }
 
-    // MARK: Kolekce
+    // MARK: Vstupní obrázky
     @discardableResult
-    func createCollection(_ name: String) -> AppCollection {
-        let c = AppCollection(id: UUID(), name: name)
-        collections.append(c)
-        save()
-        return c
-    }
+    func importInputImage(from sourceURL: URL) -> URL? {
+        let accessing = sourceURL.startAccessingSecurityScopedResource()
+        defer { if accessing { sourceURL.stopAccessingSecurityScopedResource() } }
 
-    func deleteCollection(_ id: UUID) {
-        collections.removeAll { $0.id == id }
-        for i in images.indices { images[i].collectionIDs.remove(id) }
-        save()
-    }
-
-    func toggleMembership(imageID: UUID, collectionID: UUID) {
-        guard let idx = images.firstIndex(where: { $0.id == imageID }) else { return }
-        if images[idx].collectionIDs.contains(collectionID) {
-            images[idx].collectionIDs.remove(collectionID)
-        } else {
-            images[idx].collectionIDs.insert(collectionID)
+        guard let data = try? Data(contentsOf: sourceURL), NSImage(data: data) != nil else { return nil }
+        if let existing = inputImages.first(where: { (try? Data(contentsOf: $0.fileURL)) == data }) {
+            return existing.fileURL
         }
-        save()
+
+        let id = UUID()
+        let fileExtension = sourceURL.pathExtension.isEmpty ? "png" : sourceURL.pathExtension.lowercased()
+        let destination = inputImagesFolder.appendingPathComponent("\(id.uuidString).\(fileExtension)")
+        guard (try? data.write(to: destination, options: .atomic)) != nil else { return nil }
+
+        let input = SavedInputImage(id: id, fileURL: destination, createdAt: Date())
+        inputImages.insert(input, at: 0)
+        saveInputImages()
+        return destination
     }
 
-    func images(in collectionID: UUID) -> [LibraryImage] {
-        images.filter { $0.collectionIDs.contains(collectionID) }
+    func removeInputImage(_ id: UUID) {
+        guard let index = inputImages.firstIndex(where: { $0.id == id }) else { return }
+        let image = inputImages.remove(at: index)
+        try? fileManager.removeItem(at: image.fileURL)
+        saveInputImages()
     }
 
     // MARK: Perzistence
     private func save() {
         let index = LibraryIndex(
             images: images.map(LibraryIndex.Meta.init),
-            trashed: trashed.map(LibraryIndex.Meta.init),
-            collections: collections.map { LibraryIndex.CollectionMeta(id: $0.id, name: $0.name) }
+            trashed: trashed.map(LibraryIndex.Meta.init)
         )
-        if let data = try? JSONEncoder().encode(index) {
-            try? data.write(to: indexURL)
+        do {
+            let data = try JSONEncoder().encode(index)
+            try data.write(to: indexURL, options: .atomic)
+            lastErrorMessage = nil
+        } catch {
+            recordError("Nepodařilo se uložit metadata knihovny: \(error.localizedDescription)")
         }
     }
 
@@ -331,7 +373,45 @@ final class LibraryStore {
               let index = try? JSONDecoder().decode(LibraryIndex.self, from: data) else { return }
         images = index.images.map { $0.toImage(folder: imagesFolder) }
         trashed = index.trashed.map { $0.toImage(folder: imagesFolder) }
-        collections = index.collections.map { AppCollection(id: $0.id, name: $0.name) }
+    }
+
+    private func saveInputImages() {
+        let index = SavedInputIndex(
+            images: inputImages.map {
+                SavedInputIndex.Meta(id: $0.id, fileName: $0.fileURL.lastPathComponent, createdAt: $0.createdAt)
+            }
+        )
+        do {
+            let data = try JSONEncoder().encode(index)
+            try data.write(to: inputIndexURL, options: .atomic)
+            lastErrorMessage = nil
+        } catch {
+            recordError("Nepodařilo se uložit vstupní obrázky: \(error.localizedDescription)")
+        }
+    }
+
+    private func loadInputImages() {
+        guard let data = try? Data(contentsOf: inputIndexURL),
+              let index = try? JSONDecoder().decode(SavedInputIndex.self, from: data) else { return }
+        inputImages = index.images.compactMap { meta in
+            let url = inputImagesFolder.appendingPathComponent(meta.fileName)
+            guard fileManager.fileExists(atPath: url.path) else { return nil }
+            return SavedInputImage(id: meta.id, fileURL: url, createdAt: meta.createdAt)
+        }
+    }
+
+    private func recordError(_ message: String) {
+        lastErrorMessage = message
+    }
+}
+
+private struct SavedInputIndex: Codable {
+    var images: [Meta]
+
+    struct Meta: Codable {
+        var id: UUID
+        var fileName: String
+        var createdAt: Date
     }
 }
 
@@ -339,7 +419,6 @@ final class LibraryStore {
 private struct LibraryIndex: Codable {
     var images: [Meta]
     var trashed: [Meta]
-    var collections: [CollectionMeta]
 
     struct Meta: Codable {
         var id: UUID
@@ -353,7 +432,6 @@ private struct LibraryIndex: Codable {
         var updatedAt: Date
         var runID: UUID?
         var variantLabel: String?
-        var collectionIDs: [UUID]
         var groundingLinks: [GroundingLink]
         var revisions: [LibraryImageRevision]
         var undoneRevisions: [LibraryImageRevision]
@@ -370,7 +448,6 @@ private struct LibraryIndex: Codable {
             updatedAt = img.updatedAt
             runID = img.runID
             variantLabel = img.variantLabel
-            collectionIDs = Array(img.collectionIDs)
             groundingLinks = img.groundingLinks
             revisions = img.revisions
             undoneRevisions = img.undoneRevisions
@@ -384,15 +461,9 @@ private struct LibraryIndex: Codable {
                          aspectRatio: aspectRatio, resolution: resolution,
                          createdAt: createdAt, updatedAt: updatedAt,
                          runID: runID, variantLabel: variantLabel,
-                         collectionIDs: Set(collectionIDs),
                          groundingLinks: groundingLinks,
                          revisions: revisions,
                          undoneRevisions: undoneRevisions)
         }
-    }
-
-    struct CollectionMeta: Codable {
-        var id: UUID
-        var name: String
     }
 }

@@ -15,6 +15,8 @@ struct PhotosSlider: View {
     var range: ClosedRange<Double> = 0...1
     var step: Double? = nil
     var format: (Double) -> String = { String(Int($0.rounded())) }
+    /// Centrovaný posuvník (0 uprostřed dráhy). Používá se pro Warmth/Tint/Vignette/Neutrals/Tone.
+    var centered: Bool = false
 
     private let height: CGFloat = 30
 
@@ -24,20 +26,32 @@ struct PhotosSlider: View {
             let span = range.upperBound - range.lowerBound
             let fraction = span > 0 ? (value - range.lowerBound) / span : 0
             let x = max(0, min(w, w * fraction))
+            let centerX = centered ? (w * ((0 - range.lowerBound) / span)).clampedToRange(0...w) : 0
 
             ZStack(alignment: .leading) {
-                // Vyplněná část (jemný teal nádech)
-                Rectangle()
-                    .fill(Color.accentColor.opacity(0.16))
-                    .frame(width: x)
+                if centered {
+                    Rectangle()
+                        .fill(Color.accentColor.opacity(0.16))
+                        .frame(width: abs(x - centerX))
+                        .offset(x: min(x, centerX))
+                } else {
+                    Rectangle()
+                        .fill(Color.accentColor.opacity(0.16))
+                        .frame(width: x)
+                }
 
-                // Svislá ryska polohy
+                if centered {
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.12))
+                        .frame(width: 1)
+                        .offset(x: centerX - 0.5)
+                }
+
                 Rectangle()
                     .fill(Color.primary.opacity(0.28))
                     .frame(width: 1.5)
                     .offset(x: x - 0.75)
 
-                // Obsah
                 HStack(spacing: DS.Space.s) {
                     if let systemImage {
                         Image(systemName: systemImage)
@@ -70,6 +84,12 @@ struct PhotosSlider: View {
             )
         }
         .frame(height: height)
+    }
+}
+
+private extension Comparable {
+    func clampedToRange(_ limits: ClosedRange<Self>) -> Self {
+        min(max(self, limits.lowerBound), limits.upperBound)
     }
 }
 

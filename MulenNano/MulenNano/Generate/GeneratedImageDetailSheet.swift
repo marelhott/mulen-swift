@@ -8,6 +8,10 @@
 import SwiftUI
 import AppKit
 
+enum DetailInspectorTab: Hashable {
+    case prompt, edit
+}
+
 struct GeneratedImageDetailSheet: View {
     @Environment(AppEnvironment.self) private var env
 
@@ -23,6 +27,10 @@ struct GeneratedImageDetailSheet: View {
 
     @State private var editPrompt: String
     @State private var zoom: Double = 1
+
+    // Úpravy Photos-style
+    @State private var inspectorTab: DetailInspectorTab = .prompt
+    @State private var editingSession: PhotoEditingSession?
 
     init(
         image: LibraryImage,
@@ -63,6 +71,14 @@ struct GeneratedImageDetailSheet: View {
         .onChange(of: image?.prompt) { _, newValue in
             guard let newValue, !busy else { return }
             editPrompt = newValue
+        }
+        .onChange(of: image?.updatedAt) { _, _ in
+            // Obrázek se změnil (regenerace) → zrušit editační session.
+            editingSession = nil
+            inspectorTab = .prompt
+        }
+        .onChange(of: inspectorTab) { _, tab in
+            if tab == .edit { ensureEditingSession() }
         }
     }
 
@@ -125,13 +141,14 @@ struct GeneratedImageDetailSheet: View {
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-            if let nsImage = image?.nsImage {
+            if let nsImage = canvasImage {
                 ZoomableImageScrollView(
                     image: nsImage,
+                    imageID: imageID,
                     zoom: $zoom,
                     busy: busy
                 )
-                .id(image?.updatedAt)
+                .id(imageID)
             } else {
                 VStack(spacing: DS.Space.m) {
                     Image(systemName: "photo")
@@ -149,15 +166,92 @@ struct GeneratedImageDetailSheet: View {
     }
 
     private var inspector: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: DS.Space.l) {
-                metadata
-                Hairline()
-                promptEditor
+        VStack(spacing: 0) {
+            inspectorTabs
+            Hairline()
+            Group {
+                switch inspectorTab {
+                case .prompt:
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: DS.Space.l) {
+                            metadata
+                            Hairline()
+                            promptEditor
+                        }
+                        .padding(DS.Space.l)
+                    }
+                    .background(.clear)
+                case .edit:
+                    if let session = editingSession {
+                        PhotoEditorPanel(
+                            session: session,
+                            onApply: { applyEdits(session) },
+                            onRevert: { session.resetAll() }
+                        )
+                    } else {
+                        editLoadingPlaceholder
+                    }
+                }
             }
-            .padding(DS.Space.l)
         }
         .background(.clear)
+    }
+
+    private var inspectorTabs: some View {
+        HStack(spacing: DS.Space.xs) {
+            Picker("", selection: $inspectorTab) {
+                Text("Prompt").tag(DetailInspectorTab.prompt)
+                Text("Upravit").tag(DetailInspectorTab.edit)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.horizontal, DS.Space.l)
+        .padding(.vertical, DS.Space.s)
+    }
+
+    private var editLoadingPlaceholder: some View {
+        VStack(spacing: DS.Space.m) {
+            Spacer()
+            ProgressView()
+            Text("Připravuji úpravy…")
+                .font(.dsCaption)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task {
+            ensureEditingSession()
+        }
+    }
+
+    private func ensureEditingSession() {
+        guard editingSession == nil, let img = image?.nsImage else { return }
+        editingSession = PhotoEditingSession(source: img)
+    }
+
+    private func applyEdits(_ session: PhotoEditingSession) {
+        guard let id = image?.id,
+              let data = session.renderFullRes() ?? image?.imageData else { return }
+        env.library.replaceImage(
+            id,
+            imageData: data,
+            prompt: image?.prompt ?? "",
+            modelID: image?.modelID ?? "",
+            providerName: image?.providerName,
+            aspectRatio: image?.aspectRatio,
+            resolution: image?.resolution
+        )
+        editingSession = nil
+        inspectorTab = .prompt
+    }
+
+    private var canvasImage: NSImage? {
+        if inspectorTab == .edit, let session = editingSession {
+            return session.previewImage ?? session.sourceImage ?? image?.nsImage
+        }
+        return image?.nsImage
     }
 
     private var metadata: some View {
@@ -266,6 +360,7 @@ struct GeneratedImageDetailSheet: View {
 
 private struct ZoomableImageScrollView: NSViewRepresentable {
     let image: NSImage
+    let imageID: UUID
     @Binding var zoom: Double
     let busy: Bool
 
@@ -292,7 +387,8 @@ private struct ZoomableImageScrollView: NSViewRepresentable {
         let container = NSView(frame: .zero)
         let imageView = NSImageView(frame: .zero)
         imageView.image = image
-        imageView.imageScaling = .scaleNone
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.imageAlignment = .alignCenter
         imageView.wantsLayer = true
 
         container.addSubview(imageView)
@@ -301,12 +397,28 @@ private struct ZoomableImageScrollView: NSViewRepresentable {
         context.coordinator.scrollView = scrollView
         context.coordinator.containerView = container
         context.coordinator.imageView = imageView
-        context.coordinator.update(image: image, zoom: zoom, busy: busy)
+
+        // Spolehlivé přepočítání když layout získá reálnou velikost.
+        let coordinator = context.coordinator
+        scrollView.onLayout = { [weak coordinator] in
+            coordinator?.relayout()
+        }
+        let clip = scrollView.contentView
+        clip.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: clip,
+            queue: .main
+        ) { [weak coordinator] _ in
+            coordinator?.relayout()
+        }
+
+        context.coordinator.update(image: image, imageID: imageID, zoom: zoom, busy: busy)
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        context.coordinator.update(image: image, zoom: zoom, busy: busy)
+        context.coordinator.update(image: image, imageID: imageID, zoom: zoom, busy: busy)
     }
 
     final class Coordinator: NSObject {
@@ -314,45 +426,69 @@ private struct ZoomableImageScrollView: NSViewRepresentable {
         weak var scrollView: CenteringScrollView?
         weak var containerView: NSView?
         weak var imageView: NSImageView?
-        private var lastImageIdentifier: String?
+        private var lastImageID: UUID?
+
+        private var currentImage: NSImage?
+        private var currentImageID: UUID?
+        private var currentZoom: Double = 1
+        private var currentBusy: Bool = false
+        private var retryScheduled = false
 
         init(zoom: Binding<Double>) {
             _zoom = zoom
         }
 
-        func update(image: NSImage, zoom: Double, busy: Bool) {
-            guard let scrollView, let containerView, let imageView else { return }
-            let imageKey = image.tiffRepresentation.map { String($0.hashValue) } ?? UUID().uuidString
+        func update(image: NSImage, imageID: UUID, zoom: Double, busy: Bool) {
+            currentImage = image
+            currentImageID = imageID
+            currentZoom = zoom
+            currentBusy = busy
+            relayout()
+        }
+
+        /// Přepočítá velikost obrázku podle aktuálního viewportu.
+        /// Bezpečné volat opakovaně; při nulovém viewportu naplánuje retry.
+        func relayout() {
+            guard let scrollView, let containerView, let imageView,
+                  let image = currentImage else { return }
             let imageSize = image.pixelSize
             let viewport = scrollView.contentView.bounds.size
+
+            // Viewport zatím nemá reálnou velikost → počkáme na layout.
+            guard viewport.width > 1 || viewport.height > 1 else {
+                scheduleRetry()
+                return
+            }
+
             let insets = scrollView.contentInsets
             let availableSize = CGSize(
                 width: max(1, viewport.width - insets.left - insets.right),
                 height: max(1, viewport.height - insets.top - insets.bottom)
             )
-            let fittedSize = aspectFitSize(imageSize, inside: availableSize)
+            let fitted = aspectFitSize(imageSize, inside: availableSize)
             let displaySize = CGSize(
-                width: max(1, fittedSize.width * zoom),
-                height: max(1, fittedSize.height * zoom)
+                width: max(1, fitted.width * currentZoom),
+                height: max(1, fitted.height * currentZoom)
             )
 
             if imageView.image !== image {
                 imageView.image = image
             }
-
             if let layer = imageView.layer {
-                layer.cornerRadius = 0
                 layer.masksToBounds = true
-                layer.opacity = busy ? 0.35 : 1
+                layer.opacity = currentBusy ? 0.35 : 1
             }
 
-            imageView.frame = NSRect(origin: .zero, size: displaySize)
-            containerView.frame = NSRect(origin: .zero, size: displaySize)
-            scrollView.minMagnification = 0.5
-            scrollView.maxMagnification = 8
+            let shouldRecenter = lastImageID != currentImageID
+            lastImageID = currentImageID
 
-            let shouldRecenter = lastImageIdentifier != imageKey
-            lastImageIdentifier = imageKey
+            // Zda se velikost mění — předejdeme smyčce s tile().
+            if containerView.frame.size != displaySize {
+                imageView.frame = NSRect(origin: .zero, size: displaySize)
+                containerView.frame = NSRect(origin: .zero, size: displaySize)
+                scrollView.minMagnification = 0.5
+                scrollView.maxMagnification = 8
+            }
 
             DispatchQueue.main.async {
                 scrollView.reflectScrolledClipView(scrollView.contentView)
@@ -361,6 +497,15 @@ private struct ZoomableImageScrollView: NSViewRepresentable {
                     scrollView.contentView.scroll(to: .zero)
                     scrollView.centerDocumentIfNeeded()
                 }
+            }
+        }
+
+        private func scheduleRetry() {
+            guard !retryScheduled else { return }
+            retryScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                self?.retryScheduled = false
+                self?.relayout()
             }
         }
 
@@ -376,6 +521,9 @@ private struct ZoomableImageScrollView: NSViewRepresentable {
 }
 
 private final class CenteringScrollView: NSScrollView {
+    /// Voláno při změně layoutu → coordinator přepočítá velikost obrázku.
+    var onLayout: (() -> Void)?
+
     func centerDocumentIfNeeded() {
         guard let documentView else { return }
         let clipBounds = contentView.bounds
@@ -392,6 +540,17 @@ private final class CenteringScrollView: NSScrollView {
     override func tile() {
         super.tile()
         centerDocumentIfNeeded()
+        onLayout?()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onLayout?()
+    }
+
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        onLayout?()
     }
 }
 

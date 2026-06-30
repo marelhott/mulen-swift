@@ -23,7 +23,7 @@ final class _WTHelper: NSView {
         w.titleVisibility = .hidden
         w.titlebarSeparatorStyle = .none
         w.styleMask.insert(.fullSizeContentView)
-        w.isMovableByWindowBackground = true
+        w.isMovableByWindowBackground = false
         w.hasShadow = false
     }
 }

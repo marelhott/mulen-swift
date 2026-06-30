@@ -15,8 +15,8 @@ struct GenerateLeftPanel: View {
     var canUndoPrompt: Bool = false
     var canRedoPrompt: Bool = false
     var onGenerate: () -> Void = {}
+    var onMultiModel: () -> Void = {}
     var onVariace: () -> Void = {}
-    var onInterpretace: () -> Void = {}
     var onTemplates: () -> Void = {}
     var onSavePrompt: () -> Void = {}
     var onManagePrompts: () -> Void = {}
@@ -52,10 +52,10 @@ struct GenerateLeftPanel: View {
             .disabled(!model.canGenerate || busy)
 
             HStack(spacing: DS.Space.s) {
+                Button(action: onMultiModel) { Text("Více modelů").frame(maxWidth: .infinity) }
+                    .help("Vygeneruje souběžně po jednom obrázku přes Gemini 3 Pro, Gemini 3.1 Flash a GPT Image 2")
                 Button(action: onVariace) { Text("Variace").frame(maxWidth: .infinity) }
                     .help("Variace seedu — 3 obrázky ze stejného promptu")
-                Button(action: onInterpretace) { Text("Interpretace").frame(maxWidth: .infinity) }
-                    .help("AI vytvoří 3 různé verze promptu a obrázek pro každou")
             }
             .font(.dsCaption)
             .buttonStyle(.bordered)
@@ -69,17 +69,11 @@ struct GenerateLeftPanel: View {
         VStack(alignment: .leading, spacing: DS.Space.s) {
             SectionLabel("Počet")
 
-            Picker("Počet obrázků", selection: $model.count) {
-                ForEach(1...5, id: \.self) { count in
-                    Text("\(count)").tag(count)
-                }
-            } currentValueLabel: {
-                Text("\(model.count)")
-                    .font(.dsStandard)
-                    .foregroundStyle(.primary)
-            }
-            .pickerStyle(.menu)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            CapsuleSegmentedPicker(
+                title: "Počet obrázků",
+                options: (1...5).map { ($0, "\($0)") },
+                selection: $model.count
+            )
             .help("Kolik obrázků se má v této jedné generaci vytvořit.")
 
             Text(countSummary)
@@ -242,11 +236,16 @@ struct GenerateLeftPanel: View {
                 .font(.dsCaption)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: DS.Space.xs) {
-                ForEach(SimpleLinkMode.allCases) { mode in
-                    referenceModeChip(mode)
-                }
-            }
+            CapsuleSegmentedPicker(
+                title: "Jak použít reference",
+                options: SimpleLinkMode.allCases.map { (Optional($0), $0.label) },
+                selection: Binding(
+                    get: { model.simpleLinkMode },
+                    set: { mode in
+                        model.simpleLinkMode = model.simpleLinkMode == mode ? nil : mode
+                    }
+                )
+            )
 
             if let mode = model.simpleLinkMode {
                 Text(mode.summary)
@@ -259,22 +258,4 @@ struct GenerateLeftPanel: View {
         .animation(.easeOut(duration: 0.15), value: model.simpleLinkMode)
     }
 
-    private func referenceModeChip(_ mode: SimpleLinkMode) -> some View {
-        let isActive = model.simpleLinkMode == mode
-        return Button {
-            model.simpleLinkMode = isActive ? nil : mode
-        } label: {
-            Text(mode.label)
-                .font(.dsStandardMedium)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: DS.Radius.s, style: .continuous)
-                        .fill(isActive ? Color.accentColor.opacity(0.14) : DS.Palette.fieldBackground)
-                )
-                .foregroundStyle(isActive ? Color.accentColor : .primary)
-        }
-        .buttonStyle(.plain)
-        .help(mode.summary)
-    }
 }

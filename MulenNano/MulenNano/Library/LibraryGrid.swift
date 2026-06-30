@@ -11,19 +11,30 @@ struct LibraryGrid: View {
     @Environment(AppEnvironment.self) private var env
     let images: [LibraryImage]
     var trashed: Bool = false
+    var embedded: Bool = false
+    /// Voláno při poklepu na dlaždici (otevře detail/editor).
+    var onOpen: ((LibraryImage) -> Void)? = nil
 
-    @State private var collectionTarget: LibraryImage?
+    private let grid = [
+        GridItem(.adaptive(minimum: 180, maximum: 280), spacing: DS.Space.m, alignment: .top)
+    ]
 
-    private let grid = [GridItem(.adaptive(minimum: 160, maximum: 240), spacing: DS.Space.m)]
-
+    @ViewBuilder
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: grid, spacing: DS.Space.m) {
-                ForEach(images) { tile($0) }
+        if embedded {
+            gridContent
+        } else {
+            ScrollView {
+                gridContent
+                    .padding(DS.Space.l)
             }
-            .padding(DS.Space.l)
         }
-        .sheet(item: $collectionTarget) { AssignCollectionSheet(image: $0) }
+    }
+
+    private var gridContent: some View {
+        LazyVGrid(columns: grid, alignment: .leading, spacing: DS.Space.m) {
+            ForEach(images) { tile($0) }
+        }
     }
 
     private func tile(_ image: LibraryImage) -> some View {
@@ -31,11 +42,9 @@ struct LibraryGrid: View {
             if let nsImage = image.nsImage {
                 Image(nsImage: nsImage)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(height: 170)
-                    .frame(maxWidth: .infinity)
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, alignment: .top)
                     .clipShape(RoundedRectangle(cornerRadius: DS.Radius.l, style: .continuous))
-                    .clipped()
                     .opacity(trashed ? 0.6 : 1)
             }
         }
@@ -43,16 +52,21 @@ struct LibraryGrid: View {
             if trashed {
                 Button("Obnovit") { env.library.restore(image.id) }
             } else {
+                if onOpen != nil {
+                    Button("Detail…") { onOpen?(image) }
+                    Divider()
+                }
                 Button("Stáhnout…") {
                     if let data = image.imageData {
                         ImageExport.save(data, suggestedName: "mulen-\(Int(image.createdAt.timeIntervalSince1970)).png")
                     }
                 }
-                Button("Přidat do kolekce…") { collectionTarget = image }
                 Divider()
                 Button("Smazat", role: .destructive) { env.library.moveToTrash(image.id) }
             }
         }
+        .onTapGesture(count: 2) { onOpen?(image) }
+        .onTapGesture(count: 1) { onOpen?(image) }
     }
 }
 

@@ -15,6 +15,7 @@ final class ProviderRegistry {
     private let providers: [AIProviderKind: AIProvider] = [
         .gemini: GeminiProvider(),
         .chatgpt: OpenAIProvider(),
+        .replicate: ReplicateProvider(),
     ]
 
     /// Zrcadlo přítomnosti klíčů pro UI (aby se View překreslilo po uložení).
@@ -37,8 +38,14 @@ final class ProviderRegistry {
         Keychain.get(kind.keychainAccount)
     }
 
-    func setAPIKey(_ value: String, for kind: AIProviderKind) {
-        Keychain.set(value, for: kind.keychainAccount)
+    func setAPIKey(_ value: String, for kind: AIProviderKind) throws {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        try Keychain.set(normalized, for: kind.keychainAccount)
+        refreshKeyPresence()
+    }
+
+    func deleteAPIKey(for kind: AIProviderKind) throws {
+        try Keychain.delete(kind.keychainAccount)
         refreshKeyPresence()
     }
 
@@ -60,6 +67,7 @@ extension AIProviderKind {
         switch self {
         case .gemini:  "gemini"
         case .chatgpt: "chatgpt"
+        case .replicate: "replicate"
         }
     }
 }

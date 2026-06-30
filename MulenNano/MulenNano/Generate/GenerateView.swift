@@ -3,7 +3,7 @@
 //  MulenNano
 //
 //  Generovací pohled — 3 sloupce. Koordinuje veškerou generovací logiku (1:1 s webem):
-//  generování, Variace (seed×3), Interpretace (AI×3), šablony, kolekce a akce u výsledků.
+//  generování, souběžné porovnání modelů, Variace (seed×3), šablony, kolekce a akce u výsledků.
 //
 
 import SwiftUI
@@ -15,6 +15,96 @@ private struct GenerationGroup: Identifiable {
     let images: [LibraryImage]
 }
 
+private struct GenerationSlot: Identifiable {
+    let id = UUID()
+    var progress: Double = 0
+    var image: LibraryImage?
+}
+
+private struct PendingGeneration {
+    let slotID: UUID
+    let request: GenerationRequest
+    let label: String
+    let variant: String?
+}
+
+private struct ProviderGeneration {
+    let slotID: UUID
+    let request: GenerationRequest
+    let label: String
+    let modelLabel: String
+    let provider: AIProvider
+    let apiKey: String
+}
+
+private struct FluidGenerationBackground: View {
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1 / 30)) { timeline in
+            let time = timeline.date.timeIntervalSinceReferenceDate
+            Canvas { context, size in
+                context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color(white: 0.82)))
+
+                drawBlob(
+                    in: &context,
+                    size: size,
+                    center: point(x: 0.18 + sin(time * 0.23) * 0.18,
+                                  y: 0.24 + cos(time * 0.19) * 0.16,
+                                  size: size),
+                    color: Color(red: 0.67, green: 0.75, blue: 0.69).opacity(0.72)
+                )
+                drawBlob(
+                    in: &context,
+                    size: size,
+                    center: point(x: 0.70 + cos(time * 0.17 + 1.1) * 0.17,
+                                  y: 0.22 + sin(time * 0.21) * 0.15,
+                                  size: size),
+                    color: Color(red: 0.78, green: 0.72, blue: 0.62).opacity(0.66)
+                )
+                drawBlob(
+                    in: &context,
+                    size: size,
+                    center: point(x: 0.68 + sin(time * 0.20 + 2.2) * 0.19,
+                                  y: 0.72 + cos(time * 0.16 + 0.8) * 0.17,
+                                  size: size),
+                    color: Color(red: 0.68, green: 0.65, blue: 0.76).opacity(0.68)
+                )
+                drawBlob(
+                    in: &context,
+                    size: size,
+                    center: point(x: 0.31 + cos(time * 0.18 + 2.7) * 0.18,
+                                  y: 0.70 + sin(time * 0.22 + 1.4) * 0.16,
+                                  size: size),
+                    color: Color(red: 0.76, green: 0.65, blue: 0.66).opacity(0.55)
+                )
+            }
+            .overlay(Color.white.opacity(0.20))
+        }
+    }
+
+    private func point(x: Double, y: Double, size: CGSize) -> CGPoint {
+        CGPoint(x: size.width * x, y: size.height * y)
+    }
+
+    private func drawBlob(
+        in context: inout GraphicsContext,
+        size: CGSize,
+        center: CGPoint,
+        color: Color
+    ) {
+        let diameter = max(size.width, size.height) * 1.05
+        let rect = CGRect(
+            x: center.x - diameter / 2,
+            y: center.y - diameter / 2,
+            width: diameter,
+            height: diameter
+        )
+        context.drawLayer { layer in
+            layer.addFilter(.blur(radius: min(size.width, size.height) * 0.20))
+            layer.fill(Path(ellipseIn: rect), with: .color(color))
+        }
+    }
+}
+
 struct GenerateView: View {
     @Environment(AppEnvironment.self) private var env
     @State private var model = GenerateModel()
@@ -24,26 +114,39 @@ struct GenerateView: View {
     @State private var statusText: String?
     @State private var generationProgressCurrent: Double = 0
     @State private var generationProgressTotal: Double = 1
+    @State private var generationSlots: [GenerationSlot] = []
 
     @State private var showTemplates = false
     @State private var showSavePrompt = false
     @State private var showManagePrompts = false
-    @State private var collectionTarget: LibraryImage?
     @State private var detailImage: LibraryImage?
     @State private var detailEditImageID: UUID?
     @State private var promptHistory: [String] = [""]
     @State private var promptFuture: [String] = []
     @State private var suppressPromptHistory = false
-    @State private var thumbnailSize = (UserDefaults.standard.object(forKey: "generate.thumbnailSize") as? NSNumber)?.doubleValue ?? 320
+    @State private var thumbnailSize: Double = {
+        guard let stored = (UserDefaults.standard.object(forKey: "generate.thumbnailSize") as? NSNumber)?.doubleValue else {
+            return 272
+        }
+        return abs(stored - 320) < 0.5 ? 272 : stored
+    }()
 
-    private let defaultThumbnailSize = 320.0
+    private let defaultThumbnailSize = 272.0
     private let thumbnailRange = 220.0...760.0
 
     private var grid: [GridItem] {
         [GridItem(.adaptive(minimum: thumbnailSize, maximum: thumbnailSize), spacing: DS.Space.m)]
     }
 
-    private enum GenMode { case normal, variace, interpretace }
+    private func grid(for itemCount: Int) -> [GridItem] {
+        guard itemCount == 3 else { return grid }
+        return Array(
+            repeating: GridItem(.flexible(minimum: 120, maximum: thumbnailSize), spacing: DS.Space.m),
+            count: 3
+        )
+    }
+
+    private enum GenMode { case normal, variace }
 
     var body: some View {
         ZStack {
@@ -64,16 +167,13 @@ struct GenerateView: View {
             ManagePromptsSheet { setPrompt($0) }
                 .environment(env)
         }
-        .sheet(item: $collectionTarget) { image in
-            AssignCollectionSheet(image: image)
-        }
         .onAppear {
             if promptHistory == [""] {
                 promptHistory = [model.prompt]
             }
             thumbnailSize = min(
                 thumbnailRange.upperBound,
-                max(defaultThumbnailSize, thumbnailSize)
+                max(thumbnailRange.lowerBound, thumbnailSize)
             )
             UserDefaults.standard.set(thumbnailSize, forKey: "generate.thumbnailSize")
         }
@@ -101,8 +201,8 @@ struct GenerateView: View {
                 canUndoPrompt: canUndoPrompt,
                 canRedoPrompt: canRedoPrompt,
                 onGenerate: { run(.normal) },
+                onMultiModel: runMultiModel,
                 onVariace: { run(.variace) },
-                onInterpretace: { run(.interpretace) },
                 onTemplates: { showTemplates = true },
                 onSavePrompt: { showSavePrompt = true },
                 onManagePrompts: { showManagePrompts = true },
@@ -131,9 +231,6 @@ struct GenerateView: View {
             HStack {
                 SectionLabel("Výsledky generování")
                 Spacer()
-                if isGenerating {
-                    generationProgressView
-                }
                 thumbnailSizeControl
             }
             .padding(.horizontal, DS.Space.xl)
@@ -153,9 +250,15 @@ struct GenerateView: View {
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: DS.Space.xl) {
-                        if isGenerating {
-                            LazyVGrid(columns: grid, alignment: .leading, spacing: DS.Space.m) {
-                                placeholderTile
+                        if !pendingGenerationSlots.isEmpty {
+                            LazyVGrid(
+                                columns: grid(for: pendingGenerationSlots.count),
+                                alignment: .leading,
+                                spacing: DS.Space.m
+                            ) {
+                                ForEach(pendingGenerationSlots) { slot in
+                                    generationSlotTile(slot)
+                                }
                             }
                         }
                         ForEach(generationGroups) { group in
@@ -170,31 +273,6 @@ struct GenerateView: View {
         .background(.clear)
     }
 
-    private var generationProgressView: some View {
-        VStack(alignment: .trailing, spacing: 4) {
-            if let statusText {
-                Text(statusText)
-                    .font(.dsCaption)
-                    .foregroundStyle(.secondary)
-            }
-
-            ProgressView(value: generationProgressCurrent, total: generationProgressTotal)
-                .progressViewStyle(.linear)
-                .frame(width: 140)
-
-            Text(progressDetailText)
-                .font(.dsSmall)
-                .foregroundStyle(.tertiary)
-        }
-        .frame(width: 140, alignment: .trailing)
-    }
-
-    private var progressDetailText: String {
-        let current = Int(min(generationProgressCurrent, generationProgressTotal))
-        let total = Int(max(generationProgressTotal, 1))
-        return "\(current) / \(total)"
-    }
-
     private var thumbnailSizeControl: some View {
         CompactScaleControl(
             value: $thumbnailSize,
@@ -206,19 +284,26 @@ struct GenerateView: View {
     }
 
     private var generationGroups: [GenerationGroup] {
-        var order: [UUID] = []
         var grouped: [UUID: [LibraryImage]] = [:]
 
         for image in env.library.images {
             let groupID = image.runID ?? image.id
-            if grouped[groupID] == nil { order.append(groupID) }
             grouped[groupID, default: []].append(image)
         }
 
-        return order.compactMap { id in
-            guard let images = grouped[id], let createdAt = images.map(\.createdAt).max() else { return nil }
-            return GenerationGroup(id: id, createdAt: createdAt, images: images)
+        return grouped.compactMap { id, images in
+            guard let createdAt = images.map(\.createdAt).min() else { return nil }
+            return GenerationGroup(
+                id: id,
+                createdAt: createdAt,
+                images: images.sorted { $0.createdAt < $1.createdAt }
+            )
         }
+        .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private var pendingGenerationSlots: [GenerationSlot] {
+        generationSlots.filter { $0.image == nil }
     }
 
     private func generationRow(_ group: GenerationGroup) -> some View {
@@ -241,9 +326,15 @@ struct GenerateView: View {
                 Spacer(minLength: 0)
             }
 
-            LazyVGrid(columns: grid, alignment: .leading, spacing: DS.Space.m) {
-                ForEach(group.images) { resultTile($0) }
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .top, spacing: DS.Space.m) {
+                    ForEach(group.images) { image in
+                        resultTile(image)
+                            .frame(width: thumbnailSize)
+                    }
+                }
             }
+            .scrollIndicators(.hidden)
         }
     }
 
@@ -261,11 +352,59 @@ struct GenerateView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var placeholderTile: some View {
-        RoundedRectangle(cornerRadius: DS.Radius.l, style: .continuous)
-            .fill(.quaternary)
-            .aspectRatio(1, contentMode: .fit)
-            .overlay { ProgressView() }
+    @ViewBuilder
+    private func generationSlotTile(_ slot: GenerationSlot) -> some View {
+        if let image = slot.image {
+            resultTile(image)
+                .transition(.opacity)
+        } else {
+            FluidGenerationBackground()
+                .aspectRatio(generationPreviewAspectRatio, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.l, style: .continuous))
+                .overlay {
+                    VStack(spacing: DS.Space.m) {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .controlSize(.small)
+                            .tint(Color.black.opacity(0.58))
+
+                        HStack(spacing: DS.Space.s) {
+                            GeometryReader { proxy in
+                                ZStack(alignment: .leading) {
+                                    Capsule().fill(Color.black.opacity(0.10))
+                                    Capsule()
+                                        .fill(Color(red: 0.24, green: 0.65, blue: 0.43))
+                                        .frame(width: proxy.size.width * slot.progress)
+                                }
+                            }
+                            .frame(height: 3)
+
+                            Text("\(Int(slot.progress * 100)) %")
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundStyle(Color.black.opacity(0.68))
+                                .frame(width: 34, alignment: .trailing)
+                        }
+                        .frame(maxWidth: 150)
+                    }
+                }
+                .transition(.opacity)
+        }
+    }
+
+    private var generationPreviewAspectRatio: CGFloat {
+        if let sourceURL = model.sourceImages.first,
+           let sourceImage = NSImage(contentsOf: sourceURL),
+           sourceImage.size.height > 0 {
+            return sourceImage.size.width / sourceImage.size.height
+        }
+
+        let components = model.aspectRatio.rawValue.split(separator: ":")
+        guard components.count == 2,
+              let width = Double(components[0]),
+              let height = Double(components[1]),
+              height > 0 else { return 1 }
+        return width / height
     }
 
     private func resultTile(_ image: LibraryImage) -> some View {
@@ -308,14 +447,13 @@ struct GenerateView: View {
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture { detailImage = image }
+        .onTapGesture(count: 2) { detailImage = image }
+        .onTapGesture(count: 1) { detailImage = image }
         .contextMenu {
             Button("Detail…") { detailImage = image }
             Divider()
             Button("Generovat znovu") { regenerate(image) }
             Button("Stáhnout…") { download(image) }
-            Button("Přidat do kolekce…") { collectionTarget = image }
-            Divider()
             Button("Smazat", role: .destructive) { env.library.moveToTrash(image.id) }
         }
     }
@@ -393,6 +531,7 @@ struct GenerateView: View {
             defer {
                 isGenerating = false
                 statusText = nil
+                generationSlots.removeAll()
                 resetProgress()
             }
             do {
@@ -400,35 +539,98 @@ struct GenerateView: View {
                 case .normal:
                     statusText = "Generuji \(model.count)…"
                     let req = makeRequest(prompt: userPrompt, inputs: inputs, modelID: preset.modelID)
-                    for _ in 0..<model.count {
-                        try await produce(provider, req, apiKey: apiKey, label: userPrompt, runID: runID, variant: nil)
-                        advanceProgress()
+                    let jobs = generationSlots.map {
+                        PendingGeneration(slotID: $0.id, request: req, label: userPrompt, variant: nil)
                     }
+                    try await produceConcurrently(jobs, provider: provider, apiKey: apiKey, runID: runID)
 
                 case .variace:
                     statusText = "Variace…"
                     let req = makeRequest(prompt: userPrompt, inputs: inputs, modelID: preset.modelID)
-                    for i in 1...3 {
-                        try await produce(provider, req, apiKey: apiKey, label: userPrompt, runID: runID, variant: "Variace \(i)")
-                        advanceProgress()
+                    let jobs = generationSlots.enumerated().map { index, slot in
+                        PendingGeneration(
+                            slotID: slot.id,
+                            request: req,
+                            label: userPrompt,
+                            variant: "Variace \(index + 1)"
+                        )
                     }
+                    try await produceConcurrently(jobs, provider: provider, apiKey: apiKey, runID: runID)
 
-                case .interpretace:
-                    statusText = "Interpretace…"
-                    // Varianty promptu generuje vždy Gemini (jako web), obrázky pak vybraný provider.
-                    guard let gemini = env.providers.provider(for: .gemini),
-                          let geminiKey = env.providers.apiKey(for: .gemini), !geminiKey.isEmpty else {
-                        errorMessage = "Interpretace potřebuje Gemini API klíč (generuje varianty promptu)."
-                        return
-                    }
-                    let variants = try await gemini.promptVariants(userPrompt, apiKey: geminiKey)
-                    generationProgressTotal = Double(max(variants.count, 1))
-                    for v in variants {
-                        let req = makeRequest(prompt: v.prompt, inputs: inputs, modelID: preset.modelID)
-                        try await produce(provider, req, apiKey: apiKey, label: v.prompt, runID: runID, variant: v.approach)
-                        advanceProgress()
-                    }
                 }
+                try? await Task.sleep(for: .milliseconds(250))
+            } catch {
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    private func runMultiModel() {
+        errorMessage = nil
+
+        let specs: [(id: String, label: String)] = [
+            ("nano-pro", "Gemini 3 Pro"),
+            ("nano-2", "Gemini 3.1 Flash"),
+            ("gpt-img", "GPT Image 2"),
+        ]
+        let presets = specs.compactMap { spec in
+            ModelPreset.all.first(where: { $0.id == spec.id }).map { (preset: $0, label: spec.label) }
+        }
+        guard presets.count == specs.count else {
+            errorMessage = "Konfigurace více modelů není kompletní."
+            return
+        }
+
+        let missingProviders = Set(presets.compactMap { target -> AIProviderKind? in
+            let kind = target.preset.provider
+            guard env.providers.provider(for: kind) != nil,
+                  let key = env.providers.apiKey(for: kind), !key.isEmpty else { return kind }
+            return nil
+        })
+        guard missingProviders.isEmpty else {
+            let names = missingProviders.map(\.rawValue).sorted().joined(separator: " a ")
+            errorMessage = "Více modelů vyžaduje API klíč pro \(names). Zadej ho v Nastavení (⌘,)."
+            return
+        }
+
+        let inputs = orderedInputImages()
+        let userPrompt = model.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectivePrompt = userPrompt.isEmpty
+            ? "Create a distinct high-quality variation of the provided image. Preserve the main subject, identity, composition, and visual intent while varying secondary details naturally."
+            : userPrompt
+        let runID = UUID()
+
+        isGenerating = true
+        statusText = "Více modelů…"
+        generationProgressCurrent = 0
+        generationProgressTotal = 3
+        prepareGenerationSlots(count: 3)
+
+        let jobs = zip(generationSlots, presets).compactMap { slot, target -> ProviderGeneration? in
+            guard let provider = env.providers.provider(for: target.preset.provider),
+                  let apiKey = env.providers.apiKey(for: target.preset.provider), !apiKey.isEmpty else { return nil }
+            var request = makeRequest(prompt: effectivePrompt, inputs: inputs, modelID: target.preset.modelID)
+            request.allowModelFallback = false
+            return ProviderGeneration(
+                slotID: slot.id,
+                request: request,
+                label: userPrompt,
+                modelLabel: target.label,
+                provider: provider,
+                apiKey: apiKey
+            )
+        }
+
+        Task {
+            defer {
+                isGenerating = false
+                statusText = nil
+                generationSlots.removeAll()
+                resetProgress()
+            }
+            do {
+                try await produceAcrossModels(jobs, runID: runID)
+                try? await Task.sleep(for: .milliseconds(250))
             } catch {
                 errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
@@ -461,7 +663,7 @@ struct GenerateView: View {
 
     private func produce(_ provider: AIProvider, _ req: GenerationRequest, apiKey: String,
                          label: String, runID: UUID, variant: String?,
-                         replacing imageID: UUID? = nil) async throws {
+                         replacing imageID: UUID? = nil) async throws -> LibraryImage? {
         let out = try await provider.generate(req, apiKey: apiKey)
         if let imageID {
             env.library.replaceImage(
@@ -474,8 +676,9 @@ struct GenerateView: View {
                 resolution: req.resolution,
                 groundingLinks: out.groundingLinks
             )
+            return nil
         } else {
-            env.library.store(
+            return env.library.store(
                 imageData: out.imageData,
                 prompt: label.isEmpty ? "(bez promptu)" : label,
                 modelID: out.modelID,
@@ -487,6 +690,137 @@ struct GenerateView: View {
                 groundingLinks: out.groundingLinks
             )
         }
+    }
+
+    private func produceConcurrently(
+        _ jobs: [PendingGeneration],
+        provider: AIProvider,
+        apiKey: String,
+        runID: UUID
+    ) async throws {
+        let tasks = jobs.map { job in
+            Task { @MainActor in
+                let progressTask = estimatedProgressTask(for: job.slotID)
+                defer { progressTask.cancel() }
+
+                let image = try await produceWithNoImageRetry(
+                    provider,
+                    job.request,
+                    apiKey: apiKey,
+                    label: job.label,
+                    runID: runID,
+                    variant: job.variant
+                )
+                completeGenerationSlot(job.slotID, with: image)
+                advanceProgress()
+            }
+        }
+
+        var firstError: Error?
+        for task in tasks {
+            do {
+                try await task.value
+            } catch {
+                if firstError == nil { firstError = error }
+            }
+        }
+        if let firstError { throw firstError }
+    }
+
+    private func produceAcrossModels(_ jobs: [ProviderGeneration], runID: UUID) async throws {
+        let tasks = jobs.map { job in
+            Task { @MainActor in
+                let progressTask = estimatedProgressTask(for: job.slotID)
+                defer { progressTask.cancel() }
+
+                let image = try await produceWithNoImageRetry(
+                    job.provider,
+                    job.request,
+                    apiKey: job.apiKey,
+                    label: job.label,
+                    runID: runID,
+                    variant: job.modelLabel
+                )
+                completeGenerationSlot(job.slotID, with: image)
+                advanceProgress()
+            }
+        }
+
+        var firstError: Error?
+        for task in tasks {
+            do {
+                try await task.value
+            } catch {
+                if firstError == nil { firstError = error }
+            }
+        }
+        if let firstError { throw firstError }
+    }
+
+    private func produceWithNoImageRetry(
+        _ provider: AIProvider,
+        _ request: GenerationRequest,
+        apiKey: String,
+        label: String,
+        runID: UUID,
+        variant: String?
+    ) async throws -> LibraryImage? {
+        if provider.kind == .gemini {
+            return try await produce(
+                provider,
+                request,
+                apiKey: apiKey,
+                label: label,
+                runID: runID,
+                variant: variant
+            )
+        }
+
+        do {
+            return try await produce(
+                provider,
+                request,
+                apiKey: apiKey,
+                label: label,
+                runID: runID,
+                variant: variant
+            )
+        } catch ProviderError.noImageInResponse {
+            try await Task.sleep(for: .milliseconds(450))
+            return try await produce(
+                provider,
+                request,
+                apiKey: apiKey,
+                label: label,
+                runID: runID,
+                variant: variant
+            )
+        }
+    }
+
+    private func estimatedProgressTask(for slotID: UUID) -> Task<Void, Never> {
+        Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(180))
+                guard !Task.isCancelled,
+                      let index = generationSlots.firstIndex(where: { $0.id == slotID }) else { return }
+                let remaining = 0.92 - generationSlots[index].progress
+                generationSlots[index].progress += max(0.003, remaining * 0.035)
+                generationSlots[index].progress = min(generationSlots[index].progress, 0.92)
+            }
+        }
+    }
+
+    private func completeGenerationSlot(_ slotID: UUID, with image: LibraryImage?) {
+        guard let index = generationSlots.firstIndex(where: { $0.id == slotID }) else { return }
+        withAnimation(.easeOut(duration: 0.25)) {
+            generationSlots[index].progress = 1
+            generationSlots[index].image = image
+        }
+    }
+
+    private func prepareGenerationSlots(count: Int) {
+        generationSlots = (0..<max(count, 0)).map { _ in GenerationSlot() }
     }
 
     private func regenerate(_ image: LibraryImage) {
@@ -509,7 +843,7 @@ struct GenerateView: View {
             }
             do {
                 let req = makeRequest(prompt: image.prompt, inputs: inputs, modelID: preset.modelID)
-                try await produce(provider, req, apiKey: apiKey, label: image.prompt, runID: runID, variant: nil)
+                _ = try await produce(provider, req, apiKey: apiKey, label: image.prompt, runID: runID, variant: nil)
                 advanceProgress()
             } catch {
                 errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -575,7 +909,7 @@ struct GenerateView: View {
                 resetProgress()
             }
             do {
-                try await produce(
+                _ = try await produce(
                     provider,
                     req,
                     apiKey: apiKey,
@@ -596,10 +930,10 @@ struct GenerateView: View {
         switch mode {
         case .normal:
             generationProgressTotal = Double(max(model.count, 1))
+            prepareGenerationSlots(count: max(model.count, 1))
         case .variace:
             generationProgressTotal = 3
-        case .interpretace:
-            generationProgressTotal = 3
+            prepareGenerationSlots(count: 3)
         }
     }
 

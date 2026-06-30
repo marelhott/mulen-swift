@@ -20,7 +20,7 @@ struct RootView: View {
                 .fill(.black.opacity(0.08))
                 .frame(width: 1)
 
-            contentView(for: selection)
+            contentStack
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.white)
         }
@@ -40,18 +40,27 @@ struct RootView: View {
         .environment(\.colorScheme, .light)
     }
 
-    @ViewBuilder
-    private func contentView(for item: SidebarItem) -> some View {
-        switch item {
-        case .generate:        GenerateView()
-        case .upscaler:        UpscalerView()
-        case .faceSwap:        FaceSwapView()
-        case .reframe:         ReframeView()
-        case .batch:           BatchView()
-        case .all:             LibraryView()
-        case .collections:     CollectionsView()
-        case .recentlyDeleted: TrashView()
+    private var contentStack: some View {
+        ZStack {
+            persistentScreen(.generate) { GenerateView() }
+            persistentScreen(.upscaler) { UpscalerView() }
+            persistentScreen(.faceSwap) { FaceSwapView() }
+            persistentScreen(.reframe) { ReframeView() }
+            persistentScreen(.batch) { BatchView() }
+            persistentScreen(.all) { LibraryView() }
+            persistentScreen(.recentlyDeleted) { TrashView() }
         }
+    }
+
+    private func persistentScreen<Content: View>(
+        _ item: SidebarItem,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .opacity(selection == item ? 1 : 0)
+            .allowsHitTesting(selection == item)
+            .accessibilityHidden(selection != item)
+            .zIndex(selection == item ? 1 : 0)
     }
 }
 

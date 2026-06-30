@@ -93,17 +93,11 @@ struct GenerateRightPanel: View {
                 Text("Rozlišení")
                     .font(.dsCaption)
                     .foregroundStyle(.secondary)
-                Picker("Rozlišení", selection: $model.resolution) {
-                    ForEach(ResolutionOption.allCases) { option in
-                        Text(option.rawValue).tag(option)
-                    }
-                } currentValueLabel: {
-                    Text(model.resolution.rawValue)
-                        .font(.dsStandard)
-                        .foregroundStyle(.primary)
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                CapsuleSegmentedPicker(
+                    title: "Rozlišení",
+                    options: ResolutionOption.allCases.map { ($0, $0.rawValue) },
+                    selection: $model.resolution
+                )
 
                 Text(model.resolution.summary)
                     .font(.dsCaption)

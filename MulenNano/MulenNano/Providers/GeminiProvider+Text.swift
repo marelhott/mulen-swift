@@ -2,7 +2,7 @@
 //  GeminiProvider+Text.swift
 //  MulenNano
 //
-//  Textové operace Gemini — vylepšení promptu a generování 3 variant (1:1 z geminiService.ts).
+//  Textové operace Gemini pro vylepšení promptu.
 //
 
 import Foundation
@@ -57,45 +57,4 @@ extension GeminiProvider {
         return result.isEmpty ? prompt : result
     }
 
-    func promptVariants(_ prompt: String, apiKey: String) async throws -> [PromptVariant] {
-        guard !apiKey.isEmpty else { throw ProviderError.missingKey }
-        let instruction = """
-        Jsi expert na vytváření variant promptů pro AI generování obrázů.
-
-        ÚKOL: Vezmi základní prompt a vytvoř 3 VARIACE s různými přístupy.
-
-        ## KRITICKÉ PRAVIDLO
-        ✓ Všechny 3 varianty musí vycházet ze STEJNÉHO základního tématu
-        ✓ Každá varianta mění PERSPEKTIVU, NÁLADU nebo DETAIL
-        ✓ Změny musí být MALÉ ale znatelné
-        ✓ Zachovej původní záměr
-
-        ## FORMÁT VÝSTUPU
-        [
-          {"variant": "Variace 1", "approach": "popis změny", "prompt": "..."},
-          {"variant": "Variace 2", "approach": "popis změny", "prompt": "..."},
-          {"variant": "Variace 3", "approach": "popis změny", "prompt": "..."}
-        ]
-
-        Uživatelův prompt: "\(prompt)"
-
-        VYPIŠ POUZE JSON POLE:
-        """
-        var text = try await callText(instruction, apiKey: apiKey, temperature: 0.7, maxTokens: 4096)
-        text = text.replacingOccurrences(of: "```json", with: "")
-                   .replacingOccurrences(of: "```", with: "")
-                   .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let data = text.data(using: .utf8),
-              let arr = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else {
-            throw ProviderError.api("Nepodařilo se načíst varianty promptu.")
-        }
-        return arr.compactMap { dict in
-            guard let p = dict["prompt"] as? String else { return nil }
-            return PromptVariant(
-                variant: (dict["variant"] as? String) ?? "Varianta",
-                approach: (dict["approach"] as? String) ?? "",
-                prompt: p
-            )
-        }
-    }
 }

@@ -70,3 +70,67 @@ struct Hairline: View {
             .frame(height: 1)
     }
 }
+
+// MARK: - iOS-style segmented control used in the generation panels
+private enum CapsuleSegmentedPickerMetrics {
+    static let controlHeight: CGFloat = 28
+    static let outerPadding: CGFloat = 3
+    static let trackHeight: CGFloat = 24
+    static let selectedHeight: CGFloat = 22
+    static let cornerRadius: CGFloat = 14
+    static let fontSize: CGFloat = 11
+    static let horizontalSegmentPadding: CGFloat = 0
+}
+
+struct CapsuleSegmentedPicker<Value: Hashable>: View {
+    let title: String
+    let options: [(value: Value, label: String)]
+    @Binding var selection: Value
+    @Namespace private var selectionTransition
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(options.indices, id: \.self) { index in
+                let option = options[index]
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selection = option.value
+                    }
+                } label: {
+                    Text(option.label)
+                        .font(.system(size: CapsuleSegmentedPickerMetrics.fontSize, weight: .medium))
+                        .foregroundStyle(Color(red: 17 / 255, green: 17 / 255, blue: 17 / 255))
+                        .padding(.horizontal, CapsuleSegmentedPickerMetrics.horizontalSegmentPadding)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: CapsuleSegmentedPickerMetrics.trackHeight)
+                        .background {
+                            if selection == option.value {
+                                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                    .fill(Color.white)
+                                    .overlay {
+                                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                            .stroke(Color.black.opacity(0.12), lineWidth: 1)
+                                    }
+                                    .shadow(color: Color.black.opacity(0.08), radius: 1.5, x: 0, y: 1)
+                                    .frame(height: CapsuleSegmentedPickerMetrics.selectedHeight)
+                                    .matchedGeometryEffect(id: "selection", in: selectionTransition)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(option.label)
+                .accessibilityAddTraits(selection == option.value ? .isSelected : [])
+            }
+        }
+        .frame(height: CapsuleSegmentedPickerMetrics.trackHeight)
+        .background(Color(red: 0.93, green: 0.93, blue: 0.93))
+        .clipShape(RoundedRectangle(cornerRadius: CapsuleSegmentedPickerMetrics.trackHeight / 2, style: .continuous))
+        .padding(.horizontal, CapsuleSegmentedPickerMetrics.outerPadding)
+        .frame(height: CapsuleSegmentedPickerMetrics.controlHeight)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: CapsuleSegmentedPickerMetrics.cornerRadius, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(title)
+    }
+}

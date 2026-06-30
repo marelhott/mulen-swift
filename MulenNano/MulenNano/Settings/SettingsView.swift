@@ -42,6 +42,11 @@ struct StorageSettings: View {
                         NSWorkspace.shared.open(env.library.folder)
                     }
                 }
+                if let error = env.library.lastErrorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.dsCaption)
+                        .foregroundStyle(.red)
+                }
             } header: {
                 Text("Kam se ukládají vygenerované obrázky a metadata. Lze i externí disk.")
                     .font(.dsSmall).foregroundStyle(.secondary)
@@ -72,7 +77,9 @@ struct APIKeysSettings: View {
                 keyField(for: .gemini, label: "Gemini API klíč",
                          hint: "Google AI Studio → API key")
                 keyField(for: .chatgpt, label: "ChatGPT API klíč",
-                         hint: "OpenAI → API keys (model gpt-image-1)")
+                         hint: "OpenAI → API keys (model gpt-image-2)")
+                keyField(for: .replicate, label: "Replicate API klíč",
+                         hint: "Replicate → Account → API tokens (creative upscale / Clarity)")
             } header: {
                 Text("Klíče se ukládají bezpečně do macOS Keychain.")
                     .font(.dsSmall).foregroundStyle(.secondary)
@@ -96,7 +103,8 @@ private struct KeyRow: View {
     let registry: ProviderRegistry
 
     @State private var value: String = ""
-    @State private var saved = false
+    @State private var statusMessage: String?
+    @State private var errorMessage: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -113,15 +121,59 @@ private struct KeyRow: View {
             HStack {
                 SecureField("vlož klíč…", text: $value)
                     .textFieldStyle(.roundedBorder)
-                Button("Uložit") {
-                    registry.setAPIKey(value, for: kind)
-                    value = ""
-                    saved = true
+                Button(registry.hasKey(for: kind) ? "Nahradit" : "Uložit") {
+                    save()
                 }
-                .disabled(value.isEmpty)
+                .disabled(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                if registry.hasKey(for: kind) {
+                    Button("Odstranit", role: .destructive) {
+                        delete()
+                    }
+                }
             }
             Text(hint).font(.dsSmall).foregroundStyle(.secondary)
+            if let statusMessage {
+                Text(statusMessage)
+                    .font(.dsSmall)
+                    .foregroundStyle(.green)
+            }
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.dsSmall)
+                    .foregroundStyle(.red)
+            }
         }
         .padding(.vertical, 2)
+        .onAppear(perform: loadCurrentValue)
+        .onChange(of: registry.keyPresence) { _, _ in
+            loadCurrentValue()
+        }
+    }
+
+    private func loadCurrentValue() {
+        value = registry.apiKey(for: kind) ?? ""
+    }
+
+    private func save() {
+        errorMessage = nil
+        do {
+            try registry.setAPIKey(value, for: kind)
+            statusMessage = "Klíč uložen do Keychain."
+            loadCurrentValue()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private func delete() {
+        errorMessage = nil
+        do {
+            try registry.deleteAPIKey(for: kind)
+            value = ""
+            statusMessage = "Klíč odstraněn z Keychain."
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
     }
 }

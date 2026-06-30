@@ -140,6 +140,7 @@ enum SimpleLinkMode: String, CaseIterable, Identifiable {
 enum AIProviderKind: String, CaseIterable, Identifiable {
     case gemini = "Gemini"
     case chatgpt = "ChatGPT"
+    case replicate = "Replicate"
     var id: String { rawValue }
 }
 
@@ -153,9 +154,9 @@ struct ModelPreset: Identifiable, Hashable {
     let enabled: Bool
 
     static let all: [ModelPreset] = [
-        ModelPreset(id: "nano-pro", title: "Nano Pro",  subtitle: "Gemini 3 Pro",     provider: .gemini,  modelID: "gemini-3-pro-image-preview",     enabled: true),
-        ModelPreset(id: "nano-2",   title: "Nano 2",    subtitle: "Gemini 3.1 Flash", provider: .gemini,  modelID: "gemini-3.1-flash-image-preview", enabled: true),
-        ModelPreset(id: "gpt-img",  title: "GPT Img 2", subtitle: "OpenAI · pomalý",  provider: .chatgpt, modelID: "gpt-image-1",                    enabled: true),
+        ModelPreset(id: "nano-pro", title: "Nano Pro",  subtitle: "Gemini 3 Pro",     provider: .gemini,  modelID: "gemini-3-pro-image",     enabled: true),
+        ModelPreset(id: "nano-2",   title: "Nano 2",    subtitle: "Gemini 3.1 Flash", provider: .gemini,  modelID: "gemini-3.1-flash-image", enabled: true),
+        ModelPreset(id: "gpt-img",  title: "GPT Img 2", subtitle: "OpenAI · pomalý",  provider: .chatgpt, modelID: "gpt-image-2",                    enabled: true),
         ModelPreset(id: "flux-pro", title: "Flux Pro",  subtitle: "Fal AI · brzy",    provider: .gemini,  modelID: "",                               enabled: false),
     ]
 }

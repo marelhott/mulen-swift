@@ -18,7 +18,7 @@ struct MulenNanoApp: App {
                 .environment(env)
         }
         .windowStyle(.hiddenTitleBar)
-        .windowBackgroundDragBehavior(.enabled)
+        .windowBackgroundDragBehavior(.disabled)
         .defaultSize(width: 1200, height: 780)
         .commands {
             CommandGroup(replacing: .newItem) {}

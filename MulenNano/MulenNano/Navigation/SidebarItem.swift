@@ -11,7 +11,6 @@ import SwiftUI
 enum SidebarItem: String, Identifiable, CaseIterable {
     // MARK: Knihovna
     case all
-    case collections
     case recentlyDeleted
 
     // MARK: Nástroje
@@ -26,7 +25,6 @@ enum SidebarItem: String, Identifiable, CaseIterable {
     var title: String {
         switch self {
         case .all:             return "Vše"
-        case .collections:     return "Kolekce"
         case .recentlyDeleted: return "Naposledy smazané"
         case .generate:        return "Generovat"
         case .upscaler:        return "AI Upscaler"
@@ -39,7 +37,6 @@ enum SidebarItem: String, Identifiable, CaseIterable {
     var systemImage: String {
         switch self {
         case .all:             return "photo.on.rectangle.angled"
-        case .collections:     return "rectangle.stack"
         case .recentlyDeleted: return "trash"
         case .generate:        return "sparkles"
         case .upscaler:        return "arrow.up.left.and.arrow.down.right"
@@ -50,7 +47,7 @@ enum SidebarItem: String, Identifiable, CaseIterable {
     }
 
     /// Položky sekce „Knihovna".
-    static let library: [SidebarItem] = [.all, .collections, .recentlyDeleted]
+    static let library: [SidebarItem] = [.all, .recentlyDeleted]
 
     /// Položky sekce „Nástroje".
     static let tools: [SidebarItem] = [.generate, .upscaler, .faceSwap, .reframe, .batch]

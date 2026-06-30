@@ -2,11 +2,12 @@
 //  OpenAIProvider.swift
 //  MulenNano
 //
-//  Implementace AIProvider pro OpenAI (gpt-image-1).
+//  Implementace AIProvider pro OpenAI Image API.
 //  Bez vstupních obrázků → /v1/images/generations; se vstupy → /v1/images/edits (multipart).
 //
 
 import Foundation
+import AppKit
 
 struct OpenAIProvider: AIProvider {
     var kind: AIProviderKind { .chatgpt }
@@ -31,6 +32,7 @@ struct OpenAIProvider: AIProvider {
             data = try await edits(request, apiKey: apiKey)
         }
         return GenerationOutput(imageData: data, mimeType: "image/png", modelID: request.modelID)
+            .cropped(to: request.inputImages.first?.pixelAspectRatio)
     }
 
     // MARK: text → image
@@ -39,7 +41,8 @@ struct OpenAIProvider: AIProvider {
             "model": request.modelID,
             "prompt": request.prompt,
             "n": 1,
-            "size": openAISize(for: request.aspectRatio),
+            "size": openAISize(for: request),
+            "quality": "high",
         ]
         var req = URLRequest(url: URL(string: "https://api.openai.com/v1/images/generations")!)
         req.httpMethod = "POST"
@@ -60,7 +63,8 @@ struct OpenAIProvider: AIProvider {
         }
         field("model", request.modelID)
         field("prompt", request.prompt)
-        field("size", openAISize(for: request.aspectRatio))
+        field("size", openAISize(for: request))
+        field("quality", "high")
         for (i, image) in request.inputImages.enumerated() {
             body.append("--\(boundary)\r\n".data(using: .utf8)!)
             body.append("Content-Disposition: form-data; name=\"image[]\"; filename=\"img\(i).png\"\r\n".data(using: .utf8)!)
@@ -93,12 +97,20 @@ struct OpenAIProvider: AIProvider {
         return imageData
     }
 
-    private func openAISize(for aspectRatio: String?) -> String {
-        switch aspectRatio {
-        case "9:16", "2:3", "4:5":
+    private func openAISize(for request: GenerationRequest) -> String {
+        switch request.aspectRatio {
+        case "9:16", "2:3", "3:4", "4:5":
             return "1024x1536"
-        case "16:9", "3:2", "5:4":
+        case "16:9", "3:2", "4:3", "5:4":
             return "1536x1024"
+        case "Original":
+            guard let image = request.inputImages.first,
+                  let source = NSImage(data: image.data),
+                  source.size.height > 0 else { return "1024x1024" }
+            let ratio = source.size.width / source.size.height
+            if ratio > 1.1 { return "1536x1024" }
+            if ratio < 0.9 { return "1024x1536" }
+            return "1024x1024"
         default:
             return "1024x1024"
         }
